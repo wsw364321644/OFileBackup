@@ -10,7 +10,10 @@ function(configure_library TARGET_NAME)
     set_target_properties(${TARGET_NAME} PROPERTIES POSITION_INDEPENDENT_CODE ON)
     
     target_link_libraries(${TARGET_NAME} PRIVATE libfilebackup)
+    target_link_libraries(${TARGET_NAME} PRIVATE ofilebackup_a)
     target_link_libraries(${TARGET_NAME} PRIVATE task_manager_a)
+    target_link_libraries(${TARGET_NAME} PRIVATE cxxopts::cxxopts)
+
 
     AddTargetInclude(${TARGET_NAME})
     
@@ -29,7 +32,7 @@ function(configure_library TARGET_NAME)
     )
 endfunction()
 
-set( TARGET_NAME ofilebackup_a)
-add_library (${TARGET_NAME} STATIC ${SourceFiles} )
+set( TARGET_NAME oRecoverFolder)
+add_executable (${TARGET_NAME}  ${SourceFiles} )
 configure_library(${TARGET_NAME})
 

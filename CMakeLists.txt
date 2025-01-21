@@ -14,7 +14,7 @@ else()
   set(_bin_suffix 32)
 endif()
 
-set(UTILPP_TAG edaa3c1a6f3f916919268bda4b94c0e9bf7ff189)
+set(UTILPP_TAG fffc5813db9fd7315f0e9285e1f1be4aad529278)
 set(SonkwoUtil_TAG bd003f93ac169f0e41e76c3ef6a4c463afa2bfba)
 set(OCmakeUtil_TAG c78edf6b7b0475c389218fe78b624b9dec93ea7d)
 
@@ -102,6 +102,9 @@ if(NOT OFB_ONLY_LIB)
   FetchContent_MakeAvailable(cxxopts)
 
   add_subdirectory(src/ofilebackup)
+  add_subdirectory(src/BackupFolder)
+  add_subdirectory(src/CompareManifest)
+  add_subdirectory(src/RecoverFolder)
 endif()
 
 add_subdirectory(src/libfilebackup)

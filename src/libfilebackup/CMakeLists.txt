@@ -29,7 +29,7 @@ function(configure_library TARGET_NAME)
     
     install(EXPORT ${TARGET_NAME}Targets
         FILE ${TARGET_NAME}Targets.cmake
-        NAMESPACE UTILPP::
+        NAMESPACE OFileBackup::
         DESTINATION lib/cmake/${TARGET_NAME}
     )
 endfunction()
