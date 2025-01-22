@@ -16,7 +16,7 @@ endif()
 
 set(UTILPP_TAG fffc5813db9fd7315f0e9285e1f1be4aad529278)
 set(SonkwoUtil_TAG bd003f93ac169f0e41e76c3ef6a4c463afa2bfba)
-set(OCmakeUtil_TAG c78edf6b7b0475c389218fe78b624b9dec93ea7d)
+set(OCmakeUtil_TAG 9843d48372426d044b78e0243a8afbde1846161a)
 
 project(OFileBackup VERSION ${VERSION})
 enable_language(CXX ASM C)
@@ -58,7 +58,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(OCmakeUtil)
 
-ImportProject(LIBUV STATIC_CRT SSH FIND TAG be6b81a352d17513c95be153afcb3148f1a451cd) # 1.47.0
+ImportProject(libuv STATIC_CRT SSH FIND TAG be6b81a352d17513c95be153afcb3148f1a451cd) # 1.47.0
 ImportProject(MbedTLS STATIC STATIC_CRT SSH FIND TAG 2ca6c285a0dd3f33982dd57299012dacab1ff206) # 3.6.0
 ImportProject(zstd STATIC_CRT SSH FIND TAG f0937b83d9a32cb2b59f99bbc4db717ae6e83c9b) # after v1.5.6
 ImportProject(xxHash STATIC STATIC_CRT SSH FIND TAG bbb27a5efb85b92a0486cf361a8635715a53f6ba)

@@ -36,3 +36,4 @@ build*/
 node_modules/
 *docs/
 additional_install_files/
+_deps/
