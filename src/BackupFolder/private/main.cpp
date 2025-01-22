@@ -13,7 +13,7 @@ int main(int argc,const char* const * argv)
     options.add_options()
         ("path", "backup path", cxxopts::value<std::string>())
         ("h,help", "print usage")
-        ("cl,chunk_list_file_path", "chunk output path", cxxopts::value<std::string>()->default_value(std::string()))
+        ("cl,chunk_list_file_path", "file contain existing chunk name", cxxopts::value<std::string>()->default_value(std::string()))
         ("cp,chunk_output_path", "chunk output path", cxxopts::value<std::string>()->default_value(std::string()))
         ("mp,manifest_output_path", "manifest output path", cxxopts::value<std::string>()->default_value(std::string()))
         ;
