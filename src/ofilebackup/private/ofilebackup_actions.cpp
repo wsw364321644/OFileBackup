@@ -8,6 +8,7 @@
 #include <queue>
 #include <fstream>
 #include <iostream>
+#include <cstring>
 constexpr uint8_t ParallelTaskNum = 4;
 std::tuple< bool, std::shared_ptr<const FolderManifest_t>> gen_folder_manifest_by_chunklist(std::u8string_view workPathStr, std::vector<std::string>& hexNameList, std::u8string_view chunkOutPathStr) {
     bool fExit{ false };

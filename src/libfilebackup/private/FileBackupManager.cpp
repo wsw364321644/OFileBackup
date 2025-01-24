@@ -1,5 +1,7 @@
 #include "FileBackupManager.h"
 #include "FileBackupInternal.h"
+#include <hex.h>
+#include <FunctionExitHelper.h>
 #include <fstream>
 #include <filesystem>
 #include <mbedtls/md5.h>
@@ -10,9 +12,9 @@
 #include <list>
 #include <array>
 #include <zstd.h>
-#include <hex.h>
+#include <mutex>
 #include <algorithm>
-#include <FunctionExitHelper.h>
+
 
 static KarpRabinHash EmptyHasher(FileChunkSize, CHAR_BIT * sizeof(uint32_t));
 

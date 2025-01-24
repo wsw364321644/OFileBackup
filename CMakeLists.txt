@@ -14,7 +14,7 @@ else()
   set(_bin_suffix 32)
 endif()
 
-set(UTILPP_TAG fc75f6f0d1b8a421433bf93157dfc437beb36e9b)
+set(UTILPP_TAG 98e4bce348684f5605cfb9346cb69616916da652)
 set(SonkwoUtil_TAG bd003f93ac169f0e41e76c3ef6a4c463afa2bfba)
 set(OCmakeUtil_TAG 9843d48372426d044b78e0243a8afbde1846161a)
 

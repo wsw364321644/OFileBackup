@@ -6,13 +6,17 @@
 #include <mutex>
 #include <list>
 #include <fstream>
+#include <cstring>
 #include <stdio.h>
 #include <FunctionExitHelper.h>
 #ifdef WIN32
 #include <fcntl.h>
 #include <io.h>
 #elif defined(__linux)
+#include <fcntl.h>
 #include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #endif
 constexpr uint8_t MaxChunkConstructTaskNum = 8;
 
@@ -180,7 +184,14 @@ bool FFolderRecoverHelper::ImplementReserveFileSpace(ReserveFileSpaceData_t& Con
     }
     _close(fh);
 #elif defined(__linux)
-    ftruncate();
+    int fd = open((const char*)tempFilePath.u8string().c_str(), O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+     if (fd == -1) {
+         return false;
+    }
+     if (ftruncate(fd, ConstructChunkData.FileSize) == -1) {
+        return false;
+    }
+    close(fd);
 #endif
     return true;
 }
