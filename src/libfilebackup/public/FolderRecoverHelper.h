@@ -27,10 +27,10 @@ typedef struct ChunkFromFileSource_t {
 typedef struct ConstructChunkData_t {
     std::variant<std::u8string_view, ChunkFromFileSource_t> ChunkSourceData;
     std::u8string_view  TagetFileName;
-    uint64_t TagetFileSize;
-    uint64_t TagetFileStartPos;
-    IChunkConverter* ChunkConverter;
-    uint8_t* FileChunkBuf;
+    uint64_t TagetFileSize{};
+    uint64_t TagetFileStartPos{};
+    IChunkConverter* ChunkConverter{ nullptr };
+    uint8_t* FileChunkBuf{ nullptr };
 }ConstructChunkData_t;
 
 

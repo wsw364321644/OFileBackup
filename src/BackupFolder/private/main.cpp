@@ -15,7 +15,7 @@ int main(int argc,const char* const * argv)
         ("h,help", "print usage")
         ("cl,chunk_list_file_path", "file contain existing chunk name", cxxopts::value<std::string>()->default_value(std::string()))
         ("cp,chunk_output_path", "chunk output path", cxxopts::value<std::string>()->default_value(std::string()))
-        ("mp,manifest_output_path", "manifest output path", cxxopts::value<std::string>()->default_value(std::string()))
+        ("mp,manifest_output_path", "manifest file output name path", cxxopts::value<std::string>()->default_value(std::string()))
         ;
     options.parse_positional({ "path" });
     auto result = options.parse(argc, argv);

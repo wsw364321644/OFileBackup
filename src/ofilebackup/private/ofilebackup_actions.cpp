@@ -177,6 +177,7 @@ bool compare_folder_manifest(std::u8string_view sourcePathStr, std::u8string_vie
 bool recover_folder(std::u8string_view workPathStr, std::u8string_view manifestFilePathStr, std::u8string_view sourceManifestFilePathStr, std::u8string_view chunkPathStr, std::u8string_view tempPathStr)
 {
     auto& FolderRecoverHelper = *GetFolderRecoverHelperInstance();
+    bool hasTempFolder{ false };
     std::filesystem::path workPath(workPathStr);
     std::filesystem::path manifestFilePath(manifestFilePathStr);
     std::filesystem::path sourceManifestFilePath(sourceManifestFilePathStr);
@@ -224,21 +225,28 @@ bool recover_folder(std::u8string_view workPathStr, std::u8string_view manifestF
     }
     pSourceManifest = FolderManifest_t::from_string(sourceManifestContent.data(), size);
 
-    if (tempPathStr.empty()
-        || !std::filesystem::exists(tempPath, ec) || ec
-        || !std::filesystem::is_directory(tempPath, ec) || ec) {
+    if (tempPathStr.empty()) {
         tempPath = workPath.parent_path() / (workPath.filename().string() + "_temp");
-        std::filesystem::remove_all(tempPath, ec);
-        if (ec) {
-            return false;
-        }
+        tempPathStr8 = tempPath.u8string();
+        tempPathStr = tempPathStr8;
+    }
+    if (!std::filesystem::exists(tempPath, ec) || ec) {
         std::filesystem::create_directories(tempPath, ec);
         if (ec) {
             return false;
         }
-        tempPathStr8 = tempPath.u8string();
-        tempPathStr = tempPathStr8;
     }
+    else {
+        auto bDir = std::filesystem::is_directory(tempPath, ec);
+        if (ec) {
+            return false;
+        }
+        if (!bDir) {
+            return false;
+        }
+        hasTempFolder = true;
+    }
+
     std::atomic<EFolderRecoverStatus> RecoverStatus;
     bool res{true};
     auto recoverHandle=FolderRecoverHelper.AddTask(pManifest, pSourceManifest, [&](EFolderRecoverStatus status) {
@@ -324,7 +332,12 @@ bool recover_folder(std::u8string_view workPathStr, std::u8string_view manifestF
         }
         GetTaskManagerInstance()->Tick();
     }
-
+    if (!hasTempFolder) {
+        std::filesystem::remove_all(tempPath, ec);
+        if (ec) {
+            return false;
+        }
+    }
     return true;
 
 }
