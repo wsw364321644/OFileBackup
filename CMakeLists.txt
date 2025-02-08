@@ -14,8 +14,7 @@ else()
   set(_bin_suffix 32)
 endif()
 
-set(UTILPP_TAG 98e4bce348684f5605cfb9346cb69616916da652)
-set(SonkwoUtil_TAG bd003f93ac169f0e41e76c3ef6a4c463afa2bfba)
+set(UTILPP_TAG c0111696a62feb3d79b5a4f5da19d52fc3add09e)
 set(OCmakeUtil_TAG 9843d48372426d044b78e0243a8afbde1846161a)
 
 project(OFileBackup VERSION ${VERSION})

@@ -83,7 +83,7 @@ std::tuple< bool, std::shared_ptr<const FolderManifest_t>> gen_folder_manifest_b
     return { true, out };
 }
 bool gen_folder_manifest_action(std::u8string_view workPathStr, std::u8string_view chunkListPathStr,std::u8string_view chunkOutPathStr, std::u8string_view manifestFilePathStr) {
-    
+
     std::vector<std::string> hexNameList;
     std::error_code ec;
     if (!chunkListPathStr.empty()) {
