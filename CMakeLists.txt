@@ -15,7 +15,7 @@ else()
 endif()
 
 set(UTILPP_TAG c0111696a62feb3d79b5a4f5da19d52fc3add09e)
-set(OCmakeUtil_TAG 9843d48372426d044b78e0243a8afbde1846161a)
+set(OCmakeUtil_TAG 0027875b4f97c7d90662843f8462684efa27b20b)
 
 project(OFileBackup VERSION ${VERSION})
 enable_language(CXX ASM C)
@@ -56,6 +56,8 @@ FetchContent_Declare(
   GIT_SUBMODULES_RECURSE true
 )
 FetchContent_MakeAvailable(OCmakeUtil)
+include(ProjectImport)
+include(TargetImport)
 
 ImportProject(libuv STATIC_CRT SSH FIND TAG be6b81a352d17513c95be153afcb3148f1a451cd) # 1.47.0
 ImportProject(MbedTLS STATIC STATIC_CRT SSH FIND TAG 2ca6c285a0dd3f33982dd57299012dacab1ff206) # 3.6.0
