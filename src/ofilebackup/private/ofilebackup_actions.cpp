@@ -10,7 +10,7 @@
 #include <iostream>
 #include <cstring>
 constexpr uint8_t ParallelTaskNum = 4;
-std::tuple< bool, std::shared_ptr<const FolderManifest_t>> gen_folder_manifest_by_chunklist(std::u8string_view workPathStr, std::vector<std::string>& hexNameList, std::u8string_view chunkOutPathStr) {
+std::tuple< bool, std::shared_ptr<const FolderManifest_t>> gen_folder_manifest_by_chunklist(std::u8string_view workPathStr, std::vector<std::string>& hexNameList, std::u8string_view chunkOutPathStr, TChunkCompleteDelegate Delegate) {
     bool fExit{ false };
     std::error_code ec;
     std::shared_ptr<const FolderManifest_t> out;
@@ -46,40 +46,44 @@ std::tuple< bool, std::shared_ptr<const FolderManifest_t>> gen_folder_manifest_b
     if (!chunkOutPathStr.empty() && !std::filesystem::exists(chunkOutPath, ec)) {
         std::filesystem::create_directories(chunkOutPath);
     }
-    GetTaskManagerInstance()->AddTick(GetTaskManagerInstance()->GetMainThread(),
+
+    FTaskSlotCounter<void> TaskCounter(ParallelTaskNum);
+    auto tickHandle=GetTaskManagerInstance()->AddTick(GetTaskManagerInstance()->GetMainThread(),
         [&](float delta) {
             FileBackupManager->Tick(delta);
+            TaskCounter.CheckFinished();
         }
     );
-    std::future<void> f;
-    CommonHandle_t handle{ NullHandle };
+
     while (!fExit) {
-        if (!handle.IsValid()) {
+        auto IDopt = TaskCounter.GetFreeSlot();
+        if (IDopt.has_value()) {
+            auto i = *IDopt;
             auto task = FileBackupManager->GenFolderChunkDataGetNextFileTask(workHandle,
-                [&](const char8_t* name, uint32_t namelen, const char8_t* content, uint32_t contentlen) {
+                [&](IChunkConverter* ChunkConverter,const char8_t* name, uint32_t namelen, const char* content, uint32_t contentlen) {
                     if (!chunkOutPathStr.empty()) {
                         auto outFilePath = chunkOutPath / std::u8string_view(name, namelen);
                         std::ofstream ofs(outFilePath, std::ios::binary);
-                        ofs.write((const char*)content, contentlen);
-                        ofs.close();
+                        if(ofs.is_open()) {
+                            ChunkConverter->Convert((uint8_t*)content);
+                            auto ChunkFileBuf = ChunkConverter->GetChunkFileBuf();
+                            auto ChunkFileLen = ChunkConverter->GetChunkFileSize();
+                            ofs.write((const char*)ChunkFileBuf, ChunkFileLen);
+                            ofs.close();
+                        }
                     }
                     auto process = FileBackupManager->GenFolderChunkDataGetProcess(workHandle);
-                    std::cout << "\r" << process->CompleteSize << "/" << process->TotalSize << std::flush;
+                    Delegate(CompleteChunkData_t{ name, namelen, content, contentlen }, GenProcessData_t{ process->TotalSize,process->CompleteSize });
                 }
             );
             if (task) {
                 auto [newhandle, newf] = GetTaskManagerInstance()->AddTask(NullHandle, task);
-                handle = newhandle;
-                f = std::move(newf);
-            }
-        }
-        else {
-            if (f.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
-                handle = NullHandle;
+                TaskCounter.SetFuture(i, newhandle, newf);
             }
         }
         GetTaskManagerInstance()->Tick();
     }
+    GetTaskManagerInstance()->RemoveTask(tickHandle);
     return { true, out };
 }
 bool gen_folder_manifest_action(std::u8string_view workPathStr, std::u8string_view chunkListPathStr,std::u8string_view chunkOutPathStr, std::u8string_view manifestFilePathStr) {
@@ -258,11 +262,11 @@ bool recover_folder(std::u8string_view workPathStr, std::u8string_view manifestF
 
     std::vector<ReserveFileSpaceData_t> ReserveFileSpaceTasks(ParallelTaskNum );
     FTaskSlotCounter<void> TaskCounter(ParallelTaskNum);
-    std::vector<TFinishedSlotData> FinishedIDs;
-    GetTaskManagerInstance()->AddTick(GetTaskManagerInstance()->GetMainThread(),
+
+    auto tickHandle=GetTaskManagerInstance()->AddTick(GetTaskManagerInstance()->GetMainThread(),
         [&](float delta) {
             FolderRecoverHelper.Tick(delta);
-            TaskCounter.CheckFinished(FinishedIDs);
+            TaskCounter.CheckFinished();
         }
     );
 
@@ -332,6 +336,7 @@ bool recover_folder(std::u8string_view workPathStr, std::u8string_view manifestF
         }
         GetTaskManagerInstance()->Tick();
     }
+    GetTaskManagerInstance()->RemoveTask(tickHandle);
     if (!hasTempFolder) {
         std::filesystem::remove_all(tempPath, ec);
         if (ec) {

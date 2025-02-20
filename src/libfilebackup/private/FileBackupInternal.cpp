@@ -72,6 +72,6 @@ void FChunkConverter::Convert(uint8_t* FileChunk)
     }
 }
 
-IChunkConverter* NewChunkConverter() {
-    return new FChunkConverter;
+std::shared_ptr<IChunkConverter> NewChunkConverter() {
+    return std::make_shared<FChunkConverter>();
 }

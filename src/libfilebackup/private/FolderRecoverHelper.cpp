@@ -9,6 +9,7 @@
 #include <cstring>
 #include <stdio.h>
 #include <FunctionExitHelper.h>
+#include <string_convert.h>
 #ifdef WIN32
 #include <fcntl.h>
 #include <io.h>
@@ -32,7 +33,7 @@ typedef struct FolderRecoverWorkData_t {
             delete pConstructTask->ChunkConverter;
         }
     }
-    void ReverseBuf(uint8_t capacity) {
+    void ReverseBuf(uint8_t capacity , std::shared_ptr <const FolderManifest_t> manifest) {
         if (ConstructTaskPool.size() > capacity) {
             return;
         }
@@ -40,6 +41,8 @@ typedef struct FolderRecoverWorkData_t {
             auto pConstructTask = std::make_shared<ConstructChunkData_t>();
             pConstructTask->ChunkConverter = new FChunkConverter(EConvertDirection::ToFileChunk);
             pConstructTask->FileChunkBuf = new uint8_t[FileChunkSize];
+            
+            pConstructTask->ChunkFileMaxSize = manifest->ChunkFileMaxSize;
             ConstructTaskPool.push_back(pConstructTask);
         }
     }
@@ -52,14 +55,14 @@ typedef struct FolderRecoverWorkData_t {
 
     std::shared_mutex NextTaskMtx;
     std::set<std::u8string_view>::const_iterator NextFileItr{};
-    std::set<FileChunkData_t>::const_iterator NextChunkItr;
+    std::unordered_map<std::u8string_view, FileChunkData_t>::const_iterator NextChunkItr;
     uint32_t AllFileChunkNum{ 0 };
     std::atomic_uint32_t FileCount{ 0 };
     std::atomic_uint32_t FileChunkCount{ 0 };
 
     std::list<std::shared_ptr<ConstructChunkData_t>> ConstructTaskPool;
 
-    std::unordered_map<std::string, SourceChunkReverseCheckData_t> SourceChunks;
+    std::unordered_map<std::u8string_view, SourceChunkReverseCheckData_t> SourceChunks;
 
 }FolderRecoverWorkData_t;
 
@@ -103,24 +106,22 @@ CommonHandle_t FFolderRecoverHelper::AddTask(std::shared_ptr < const FolderManif
     }
     ;
     FolderRecoverWorkData.Delegate = Delegate;
-    FolderRecoverWorkData.ReverseBuf(MaxChunkConstructTaskNum);
-    for (auto& pair : sourceManifest->Files) {
-        auto& fileChunkData = *pair.second;
-        for (auto& chunkData : fileChunkData.Chunks) {
-            FolderRecoverWorkData.SourceChunks.try_emplace(chunkData.HexName, (const char8_t*)pair.first.c_str(), chunkData.StartPos);
+    FolderRecoverWorkData.ReverseBuf(MaxChunkConstructTaskNum, manifest);
+    for (auto& [fileName, fileChunkData] : sourceManifest->Files) {
+        for (auto& [chunkName,chunkData] : fileChunkData->Chunks) {
+            FolderRecoverWorkData.SourceChunks.try_emplace(ConvertStringTotU8View(chunkData.HexName), fileName, chunkData.StartPos);
         }
-        auto itr = manifest->Files.find(pair.first);
+        auto itr = manifest->Files.find(fileName);
         if (itr == manifest->Files.end()) {
-            FolderRecoverWorkData.FilesNeedDelete.insert((const char8_t*)pair.first.c_str());
+            FolderRecoverWorkData.FilesNeedDelete.insert(fileName);
         }
     }
 
-    for (auto& pair : manifest->Files) {
-        auto& fileChunkData = *pair.second;
-        auto itr = sourceManifest->Files.find(pair.first);
-        if (itr == sourceManifest->Files.end()|| memcmp(itr->second->FileHash, fileChunkData.FileHash, StrongHashBit / 4)!=0) {
-            FolderRecoverWorkData.FilesNeedRecover.insert((const char8_t*)pair.first.c_str());
-            for (auto& chunkData : fileChunkData.Chunks) {
+    for (auto& [fileName, fileChunkData] : manifest->Files) {
+        auto itr = sourceManifest->Files.find(fileName);
+        if (itr == sourceManifest->Files.end()|| memcmp(itr->second->FileHash, fileChunkData->FileHash, StrongHashBit / 4)!=0) {
+            FolderRecoverWorkData.FilesNeedRecover.insert(fileName);
+            for (auto& [chunkName, chunkData] : fileChunkData->Chunks) {
                 FolderRecoverWorkData.AllFileChunkNum++;
             }
         }
@@ -145,7 +146,7 @@ std::optional<const ReserveFileSpaceData_t> FFolderRecoverHelper::GetReserveNext
     if (!lock.owns_lock() || FolderRecoverWorkData.NextFileItr == FolderRecoverWorkData.FilesNeedRecover.end()) {
         return std::nullopt;
     }
-    auto fileItr=FolderRecoverWorkData.Manifest->Files.find((const char*)FolderRecoverWorkData.NextFileItr->data());
+    auto fileItr=FolderRecoverWorkData.Manifest->Files.find(FolderRecoverWorkData.NextFileItr->data());
     FunctionExitHelper_t helper(
         [&]() {
             FolderRecoverWorkData.NextFileItr++;
@@ -219,13 +220,13 @@ std::shared_ptr<const ConstructChunkData_t> FFolderRecoverHelper::GetConstructNe
     if (FolderRecoverWorkData.NextFileItr == FolderRecoverWorkData.FilesNeedRecover.end()) {
         return nullptr;
     }
-    auto fileItr = FolderRecoverWorkData.Manifest->Files.find((const char*)FolderRecoverWorkData.NextFileItr->data());
+    auto fileItr = FolderRecoverWorkData.Manifest->Files.find(FolderRecoverWorkData.NextFileItr->data());
     while (FolderRecoverWorkData.NextChunkItr == fileItr->second->Chunks.end()) {
         FolderRecoverWorkData.NextFileItr++;
         if (FolderRecoverWorkData.NextFileItr == FolderRecoverWorkData.FilesNeedRecover.end()) {
             return nullptr;
         }
-        fileItr = FolderRecoverWorkData.Manifest->Files.find((const char*)FolderRecoverWorkData.NextFileItr->data());
+        fileItr = FolderRecoverWorkData.Manifest->Files.find(FolderRecoverWorkData.NextFileItr->data());
         FolderRecoverWorkData.NextChunkItr = fileItr->second->Chunks.begin();
     }
     FunctionExitHelper_t helper(
@@ -236,16 +237,18 @@ std::shared_ptr<const ConstructChunkData_t> FFolderRecoverHelper::GetConstructNe
     auto pConstructTask = FolderRecoverWorkData.ConstructTaskPool.back();
     FolderRecoverWorkData.ConstructTaskPool.pop_back();
     lock.unlock();
-    auto sourceChunkItr = FolderRecoverWorkData.SourceChunks.find(FolderRecoverWorkData.NextChunkItr->HexName);
+    auto& chunkName = FolderRecoverWorkData.NextChunkItr->first;
+    auto& fileChunkData = FolderRecoverWorkData.NextChunkItr->second;
+    auto sourceChunkItr = FolderRecoverWorkData.SourceChunks.find(chunkName);
     if (sourceChunkItr== FolderRecoverWorkData.SourceChunks.end()) {
-        pConstructTask->ChunkSourceData = (const char8_t*)FolderRecoverWorkData.NextChunkItr->HexName;
+        pConstructTask->ChunkSourceData = chunkName;
     }
     else {
         pConstructTask->ChunkSourceData = ChunkFromFileSource_t{ sourceChunkItr->second.FileName,sourceChunkItr->second.StartPos};
     }
     pConstructTask->TagetFileName = *FolderRecoverWorkData.NextFileItr;
     pConstructTask->TagetFileSize = fileItr->second->FileSize;
-    pConstructTask->TagetFileStartPos = FolderRecoverWorkData.NextChunkItr->StartPos;
+    pConstructTask->TagetFileStartPos = fileChunkData.StartPos;
     return pConstructTask;
 }
 
@@ -294,8 +297,8 @@ bool FFolderRecoverHelper::ImplementForLocalChunkConstruct(std::shared_ptr<const
             return false;
         }
         auto ChunkFileBuf = ConstructChunkData.ChunkConverter->GetChunkFileBuf();
-        auto& ChunkFileLen = ConstructChunkData.ChunkConverter->GetChunkFileSize();
-        ifs.read((char*)ChunkFileBuf, ConstructChunkData.ChunkConverter->GetChunkFileBufSize());
+        auto ChunkFileLen = ConstructChunkData.ChunkConverter->GetChunkFileSize();
+        ifs.read((char*)ChunkFileBuf, ConstructChunkData.ChunkFileMaxSize);
         ChunkFileLen=ifs.gcount();
         ConstructChunkData.ChunkConverter->Convert(ConstructChunkData.FileChunkBuf);
     }
@@ -362,7 +365,7 @@ void FFolderRecoverHelper::Tick(float delta)
             if (FolderRecoverWorkData.FilesNeedRecover.size() == FolderRecoverWorkData.FileCount) {
                 FolderRecoverWorkData.NextFileItr = FolderRecoverWorkData.FilesNeedRecover.begin();
                 if (FolderRecoverWorkData.NextFileItr != FolderRecoverWorkData.FilesNeedRecover.end()) {
-                    auto fileItr = FolderRecoverWorkData.Manifest->Files.find((const char*)FolderRecoverWorkData.NextFileItr->data());
+                    auto fileItr = FolderRecoverWorkData.Manifest->Files.find(FolderRecoverWorkData.NextFileItr->data());
                     FolderRecoverWorkData.NextChunkItr = fileItr->second->Chunks.begin();
                 }
                 FolderRecoverWorkData.Status = EFolderRecoverStatus::FRS_ReconstructFile;

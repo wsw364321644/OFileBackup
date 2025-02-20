@@ -11,14 +11,13 @@ public:
     void* GetChunkFileBuf() override {
         return  ZSTDBuf ;
     }
-    size_t& GetChunkFileSize() override {
+    size_t GetChunkFileSize() const override {
         return ZSTDBufContentSize;
     }
-    size_t GetChunkFileBufSize()const override {
+    size_t GetChunkFileMaxSize()const override {
         return ZSTDBufSize;
     }
     void UpdateConvertDirection(EConvertDirection Direction) override;
-
     void Convert(uint8_t* FileChunk) override;
 
     EConvertDirection Direction{ EConvertDirection::None };

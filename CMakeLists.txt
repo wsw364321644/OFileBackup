@@ -14,7 +14,7 @@ else()
   set(_bin_suffix 32)
 endif()
 
-set(UTILPP_TAG c0111696a62feb3d79b5a4f5da19d52fc3add09e)
+set(UTILPP_TAG c70a8fdc534e66a0a7e83014af0e58462131af25)
 set(OCmakeUtil_TAG 0027875b4f97c7d90662843f8462684efa27b20b)
 
 project(OFileBackup VERSION ${VERSION})
@@ -102,11 +102,11 @@ if(NOT OFB_ONLY_LIB)
   )
   FetchContent_MakeAvailable(cxxopts)
 
-  add_subdirectory(src/ofilebackup)
   add_subdirectory(src/BackupFolder)
   add_subdirectory(src/CompareManifest)
   add_subdirectory(src/RecoverFolder)
 endif()
 
+add_subdirectory(src/ofilebackup)
 add_subdirectory(src/libfilebackup)
 add_subdirectory(src/libfilebackup_cexport)

@@ -31,6 +31,7 @@ typedef struct ConstructChunkData_t {
     uint64_t TagetFileStartPos{};
     IChunkConverter* ChunkConverter{ nullptr };
     uint8_t* FileChunkBuf{ nullptr };
+    uint32_t ChunkFileMaxSize{ 0 };
 }ConstructChunkData_t;
 
 
