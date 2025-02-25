@@ -55,7 +55,7 @@ typedef struct FolderRecoverWorkData_t {
 
     std::shared_mutex NextTaskMtx;
     std::set<std::u8string_view>::const_iterator NextFileItr{};
-    std::unordered_map<std::u8string_view, FileChunkData_t>::const_iterator NextChunkItr;
+    std::unordered_map<std::u8string_view, std::shared_ptr<FileChunkData_t>>::const_iterator NextChunkItr;
     uint32_t AllFileChunkNum{ 0 };
     std::atomic_uint32_t FileCount{ 0 };
     std::atomic_uint32_t FileChunkCount{ 0 };
@@ -108,7 +108,8 @@ CommonHandle_t FFolderRecoverHelper::AddTask(std::shared_ptr < const FolderManif
     FolderRecoverWorkData.Delegate = Delegate;
     FolderRecoverWorkData.ReverseBuf(MaxChunkConstructTaskNum, manifest);
     for (auto& [fileName, fileChunkData] : sourceManifest->Files) {
-        for (auto& [chunkName,chunkData] : fileChunkData->Chunks) {
+        for (auto& [chunkName,pChunkData] : fileChunkData->Chunks) {
+            auto& chunkData = *pChunkData;
             FolderRecoverWorkData.SourceChunks.try_emplace(ConvertStringTotU8View(chunkData.HexName), fileName, chunkData.StartPos);
         }
         auto itr = manifest->Files.find(fileName);
@@ -238,7 +239,8 @@ std::shared_ptr<const ConstructChunkData_t> FFolderRecoverHelper::GetConstructNe
     FolderRecoverWorkData.ConstructTaskPool.pop_back();
     lock.unlock();
     auto& chunkName = FolderRecoverWorkData.NextChunkItr->first;
-    auto& fileChunkData = FolderRecoverWorkData.NextChunkItr->second;
+    auto& pFileChunkData = FolderRecoverWorkData.NextChunkItr->second;
+    auto& fileChunkData = *pFileChunkData;
     auto sourceChunkItr = FolderRecoverWorkData.SourceChunks.find(chunkName);
     if (sourceChunkItr== FolderRecoverWorkData.SourceChunks.end()) {
         pConstructTask->ChunkSourceData = chunkName;

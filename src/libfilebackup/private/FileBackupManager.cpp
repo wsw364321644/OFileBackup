@@ -435,12 +435,14 @@ void FFileBackupManager::GenFolderChunkDataFileTask(this FFileBackupManager& sel
                 }
                 pair->second.insert(strongHashStr);
             }
-            FileChunkData_t ChunkData{ "",chunkCache.StartPos };
+            auto pChunkData = std::make_shared<FileChunkData_t>();
+            auto &ChunkData = *pChunkData;
+            ChunkData.StartPos = chunkCache.StartPos;
             to_upper_hex(ChunkData.HexName, (uint8_t*)&chunkCache.WeakHash, sizeof(chunkCache.WeakHash));
             to_upper_hex(ChunkData.HexName + sizeof(WeakHash_t) * 2, chunkCache.StrongHash, sizeof(chunkCache.StrongHash));
             ChunkData.HexName[sizeof(WeakHash_t) * 2 + sizeof(chunkCache.StrongHash) * 2] = 0;
             pFileTaskData->NewFileChunkDelegate(&pFileTaskData->ChunkConverter,(const char8_t*)ChunkData.HexName, uint32_t(sizeof(chunkCache.WeakHash) * 2 + sizeof(chunkCache.StrongHash) * 2), (const char*)rawData, FileChunkSize);
-            pFileTaskData->FileChunksData->Chunks.try_emplace((const char8_t*)ChunkData.HexName, ChunkData);
+            pFileTaskData->FileChunksData->Chunks.try_emplace((const char8_t*)ChunkData.HexName, pChunkData);
         }
         };
     auto internalCacheNewFunc = [&](std::streamoff posEnd, uint32_t weakhash, const unsigned char stronghash[16] = nullptr, bool fExist = false) {
@@ -591,7 +593,6 @@ void FFileBackupManager::GenFolderChunkDataFileTask(this FFileBackupManager& sel
         mbedtls_md5_finish(&pFileTaskData->FileMD5ctx, output);
         to_upper_hex(pFolderWorkData->FolderManifest.Files[ConvertStringTotU8View(pFileTaskData->FileChunksData->FileName)]->FileHash, output, sizeof(output));
     }
-
 }
 
 

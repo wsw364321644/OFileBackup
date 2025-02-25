@@ -25,7 +25,7 @@ typedef struct FileChunksData_t {
     std::string FileName;
     char FileHash[StrongHashBit / 4 + 1]{};
     uint64_t FileSize;
-    std::unordered_map<std::u8string_view,FileChunkData_t> Chunks;
+    std::unordered_map<std::u8string_view,std::shared_ptr<FileChunkData_t>> Chunks;
 }FileChunksData_t;
 
 typedef struct FolderManifest_t {
