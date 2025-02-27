@@ -1,0 +1,51 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "(gdb) Launch oBackupFolder",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/rundir/bin/oBackupFolder",
+            "args": [
+                "${workspaceFolder}/build/rundir/bin",
+                "--chunk_dir=${workspaceFolder}/build/rundir/chunk",
+                "--manifest_output_path=${workspaceFolder}/build/rundir/manifest/0/manifest"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${fileDirname}",
+            "environment": [
+                {
+                    "name": "LD_LIBRARY_PATH",
+                    "value": "${workspaceFolder}/build/rundir/lib:${env:LD_LIBRARY_PATH}",
+                },
+                {
+                    "name": "PATH",
+                    "value": "${workspaceFolder}/build/rundir/bin;${env:PATH}",
+                }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set Disassembly Flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ],
+        }
+
+
+        
+
+
+
+    ]
+}
