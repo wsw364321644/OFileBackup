@@ -100,6 +100,8 @@ typedef struct GenFolderChunkDataWorkData_t {
     std::filesystem::path WorkPath;
     uint64_t ToltalSize{ 0 };
     std::atomic<uint64_t> CompleteSize{ 0 };
+    
+    std::shared_mutex HashMapMtx;
     std::unordered_map<WeakHash_t, std::set<std::string>> AllHashMap;
     std::vector<std::shared_ptr<FileChunkBuf_t>> FileChunkBufPool;
     std::shared_ptr<GenFolderMetaDataProcess_t> OutProcess;
@@ -428,12 +430,15 @@ void FFileBackupManager::GenFolderChunkDataFileTask(this FFileBackupManager& sel
                 mbedtls_md5_finish(&pFileTaskData->MD5ctx, chunkCache.StrongHash);
             }
             auto strongHashStr = std::string((const char*)chunkCache.StrongHash);
-            auto [pair, res] = pFolderWorkData->AllHashMap.try_emplace(*(WeakHash_t*)&chunkCache.WeakHash, std::set<std::string>{strongHashStr});
-            if (!res) {
-                if (pair->second.find(strongHashStr) != pair->second.end()) {
-                    continue;
+            {
+                std::scoped_lock lck(pFolderWorkData->HashMapMtx);
+                auto [pair, res] = pFolderWorkData->AllHashMap.try_emplace(*(WeakHash_t*)&chunkCache.WeakHash, std::set<std::string>{strongHashStr});
+                if (!res) {
+                    if (pair->second.find(strongHashStr) != pair->second.end()) {
+                        continue;
+                    }
+                    pair->second.insert(strongHashStr);
                 }
-                pair->second.insert(strongHashStr);
             }
             auto pChunkData = std::make_shared<FileChunkData_t>();
             auto &ChunkData = *pChunkData;
@@ -479,20 +484,24 @@ void FFileBackupManager::GenFolderChunkDataFileTask(this FFileBackupManager& sel
                     WeakHash_t weakHash;
                     auto endPos = firstCache->StartPos + FileChunkSize * 2;
                     caculateAllHashInConsumedBuf(uint32_t(consumedBytes - endPos), weakHash, output);
+                    bool bWeakExist{false};
+                    bool bStrongExist{false};
+                    std::shared_lock lck(pFolderWorkData->HashMapMtx);
                     auto hashItr = pFolderWorkData->AllHashMap.find(hasher.hashvalue);
-                    if (hashItr == pFolderWorkData->AllHashMap.end()) {
-                        internalCacheNewFunc(endPos, weakHash, output, false);
-                    }
-                    else {
+                    if (hashItr != pFolderWorkData->AllHashMap.end()) {
+                        bWeakExist=true;
                         auto stronHashItr = hashItr->second.find(std::string((const char*)output));
                         if (stronHashItr != hashItr->second.end()) {
-                            internalCacheNewFunc(endPos, weakHash, output, true);
-                        }
-                        else {
-                            internalCacheNewFunc(endPos, weakHash, output, false);
+                            bStrongExist=true;
                         }
                     }
-
+                    lck.unlock();
+                    if (bStrongExist) {
+                        internalCacheNewFunc(endPos, weakHash, output, true);
+                    }
+                    else {
+                        internalCacheNewFunc(endPos, weakHash, output, false);
+                    }
                 }
                 internalCacheNewFunc(consumedBytes, weakhash, stronghash, fExist);
                 break;
@@ -556,34 +565,30 @@ void FFileBackupManager::GenFolderChunkDataFileTask(this FFileBackupManager& sel
                 hasher.update(*inBytePtr, *std::get<0>(std::get<0>(ConsumedBuf)));
             }
 
+            bool bWeakExist{false};
+            bool bStrongExist{false};
+            std::shared_lock lck(pFolderWorkData->HashMapMtx);
             auto hashItr = pFolderWorkData->AllHashMap.find(hasher.hashvalue);
-            //hash not exist
-            if (hashItr == pFolderWorkData->AllHashMap.end()) {
+            if (hashItr != pFolderWorkData->AllHashMap.end()) {
+                bWeakExist=true;
+                caculateHashInConsumedBuf(0, output);
+                auto stronHashItr = hashItr->second.find(std::string((const char*)output));
+                if (stronHashItr != hashItr->second.end()) {
+                    bStrongExist=true;
+                }
+            }
+            lck.unlock();
+            if(bWeakExist){
+                if(bStrongExist){
+                    cacheNewFunc(hasher.hashvalue, nullptr, true);
+                }else{
+                    cacheNewFunc(hasher.hashvalue, output);
+                }
+            }else{
                 cacheNewFunc(hasher.hashvalue);
-                if (consumedBytes > pFileTaskData->FileChunksData->FileSize) {
-                    break;
-                }
-                continue;
             }
-
-            //weak hash exist
-            caculateHashInConsumedBuf(0, output);
-            auto stronHashItr = hashItr->second.find(std::string((const char*)output));
-            if (stronHashItr != hashItr->second.end()) {
-                //strong hash exist
-                cacheNewFunc(hasher.hashvalue, nullptr, true);
-                if (consumedBytes > pFileTaskData->FileChunksData->FileSize) {
-                    break;
-                }
-                continue;
-            }
-            else {
-                //hash not exist
-                cacheNewFunc(hasher.hashvalue, output);
-                if (consumedBytes > pFileTaskData->FileChunksData->FileSize) {
-                    break;
-                }
-                continue;
+            if (consumedBytes > pFileTaskData->FileChunksData->FileSize) {
+                break;
             }
         }
     }

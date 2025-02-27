@@ -4,6 +4,7 @@
 #include <Task/TaskManager.h>
 #include <Task/TaskCounter.h>
 #include <FunctionExitHelper.h>
+#include <dir_util.h>
 
 #include <filesystem>
 #include <numeric>
@@ -89,7 +90,9 @@ std::tuple< bool, std::shared_ptr<const FolderManifest_t>> gen_folder_manifest_b
                         }
                     }
                     auto process = FileBackupManager->GenFolderChunkDataGetProcess(workHandle);
-                    Delegate(CompleteChunkData_t{ name, namelen, content, contentlen }, GenProcessData_t{ process->TotalSize,process->CompleteSize });
+                    if(Delegate){
+                        Delegate(CompleteChunkData_t{ name, namelen, content, contentlen }, GenProcessData_t{ process->TotalSize,process->CompleteSize });
+                    }
                 }
             );
             if (task) {
@@ -116,27 +119,39 @@ bool gen_folder_manifest_action(std::u8string_view workPathStr, std::u8string_vi
             hexNameList.push_back(line);
         }
     }
-     auto [res, pFolderManifest]= gen_folder_manifest_by_chunklist(workPathStr, hexNameList, chunkOutPathStr);
-     if (!res) {
-         return false;
-     }
-     if (manifestFilePathStr.empty()) {
-         std::cout << "\r" << *pFolderManifest->to_string() << std::flush;
-     }
-     else {
-         std::filesystem::path manifestFilePath(manifestFilePathStr);
-         std::filesystem::create_directories(manifestFilePath.parent_path(),ec);
-         if (ec) {
-             return false;
-         }
-         std::ofstream ofs(manifestFilePath, std::ios::binary);
-         if (!ofs.is_open()) {
-             return false;
-         }
-         ofs << *pFolderManifest->to_string();
-         ofs.close();
-     }
-     return true;
+    DirUtil::IterateDir(chunkOutPathStr, 
+        [&](DirEntry_t &entry) {
+            if(entry.bDir){
+                return;
+            }
+            hexNameList.push_back((const char*)entry.Name);
+        },
+    0);
+    auto [res, pFolderManifest]= gen_folder_manifest_by_chunklist(workPathStr, hexNameList, chunkOutPathStr ,
+    [](CompleteChunkData_t CompleteChunkData, GenProcessData_t GenProcessData){
+        std::cout << "\r" << GenProcessData.CompleteSize << "/" << GenProcessData.TotalSize << std::flush;
+    }
+    );
+    if (!res) {
+        return false;
+    }
+    if (manifestFilePathStr.empty()) {
+        std::cout << "\r" << *pFolderManifest->to_string() << std::endl;
+    }
+    else {
+        std::filesystem::path manifestFilePath(manifestFilePathStr);
+        std::filesystem::create_directories(manifestFilePath.parent_path(),ec);
+        if (ec) {
+            return false;
+        }
+        std::ofstream ofs(manifestFilePath, std::ios::binary);
+        if (!ofs.is_open()) {
+            return false;
+        }
+        ofs << *pFolderManifest->to_string();
+        ofs.close();
+    }
+    return true;
 }
 
 
