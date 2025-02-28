@@ -51,7 +51,7 @@ endif()
 
 FetchContent_Declare(
   OCmakeUtil
-  GIT_REPOSITORY git@ssh.github.com:wsw364321644/OCmakeUtil.git
+  GIT_REPOSITORY git@github.com:wsw364321644/OCmakeUtil.git
   GIT_TAG ${OCmakeUtil_TAG}
   GIT_SUBMODULES_RECURSE true
 )
