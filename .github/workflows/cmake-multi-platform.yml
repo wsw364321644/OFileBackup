@@ -50,6 +50,11 @@ jobs:
       with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
           
+    - name: Add GitHub to the SSH known hosts file
+      run: |
+        curl -L -o jq.exe https://github.com/jqlang/jq/releases/latest/download/jq-win64.exe
+        curl --silent https://api.github.com/meta | jq --raw-output "\"github.com \"+.ssh_keys[]" >> %USERPROFILE%/.ssh/known_hosts
+        
     - name: Set reusable strings
       # Turn repeated input strings (such as the build output directory) into step outputs. These step outputs can be used throughout the workflow file.
       id: strings
