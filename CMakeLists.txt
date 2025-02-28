@@ -14,8 +14,8 @@ else()
   set(_bin_suffix 32)
 endif()
 
-set(UTILPP_TAG e849ab9cf0af4402abee72561b829d76a9e6d1e1)
-set(OCmakeUtil_TAG 0027875b4f97c7d90662843f8462684efa27b20b)
+set(OCmakeUtil_TAG 35dc84a57e2222e4ede01f58d48deea147c9a098)
+set(UTILPP_TAG 3d170cb2ad151231b0d03c5ee05cc283453d2ec6)
 
 project(OFileBackup VERSION ${VERSION})
 enable_language(CXX ASM C)
@@ -71,7 +71,7 @@ set(TF_BUILD_PROFILER ON CACHE BOOL "" FORCE)
 set(TF_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
   taskflow
-  GIT_REPOSITORY git@ssh.github.com:taskflow/taskflow.git
+  GIT_REPOSITORY git@github.com:taskflow/taskflow.git
   GIT_TAG 12f8bd4e970ab27fd3dee3bffa24b5b48b54ba39 # 3.6.0
 )
 FetchContent_MakeAvailable(taskflow)
@@ -80,7 +80,7 @@ set(UTILPP_WITH_STATIC_LIBUV OFF CACHE BOOL "" FORCE)
 set(UTILPP_STATIC_CRT ON CACHE BOOL "" FORCE)
 FetchContent_Declare(
   utilpp
-  GIT_REPOSITORY git@ssh.github.com:wsw364321644/utilpp.git
+  GIT_REPOSITORY git@github.com:wsw364321644/utilpp.git
   GIT_TAG ${UTILPP_TAG}
 )
 FetchContent_MakeAvailable(utilpp)
@@ -88,7 +88,7 @@ FetchContent_MakeAvailable(utilpp)
 if(OFB_BUILD_TEST)
   FetchContent_Declare(
     Catch2
-    GIT_REPOSITORY git@ssh.github.com:catchorg/Catch2.git
+    GIT_REPOSITORY git@github.com:catchorg/Catch2.git
     GIT_TAG fa43b77429ba76c462b1898d6cd2f2d7a9416b14 # v3.7.1
   )
   FetchContent_MakeAvailable(Catch2)
@@ -97,7 +97,7 @@ endif()
 if(NOT OFB_ONLY_LIB)
   FetchContent_Declare(
     cxxopts
-    GIT_REPOSITORY git@ssh.github.com:jarro2783/cxxopts.git
+    GIT_REPOSITORY git@github.com:jarro2783/cxxopts.git
     GIT_TAG 3bf268481da8208d171d8908e6491459de3651d7 # v3.2.0
   )
   FetchContent_MakeAvailable(cxxopts)
