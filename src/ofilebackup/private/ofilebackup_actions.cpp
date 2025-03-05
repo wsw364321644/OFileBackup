@@ -53,6 +53,7 @@ std::tuple< bool, std::shared_ptr<const FolderManifest_t>> gen_folder_manifest_b
     FTaskSlotCounter<void> TaskCounter(ParallelTaskNum);
     typedef struct TaskData_t {
         WorkflowHandle_t WorkflowHandle;
+        IFileBackupManagerInterface::TOneFileChunkDataPostProcessingTask PostTask;
     }TaskData_t;
     std::vector<TaskData_t> taskDataList(ParallelTaskNum);
     for (auto& taskData: taskDataList)
@@ -62,7 +63,10 @@ std::tuple< bool, std::shared_ptr<const FolderManifest_t>> gen_folder_manifest_b
     auto tickHandle=GetTaskManagerInstance()->AddTick(GetTaskManagerInstance()->GetMainThread(),
         [&](float delta) {
             FileBackupManager->Tick(delta);
-            TaskCounter.CheckFinished();
+            auto& finishedSlots= TaskCounter.CheckFinished();
+            for (auto& slot : finishedSlots) {
+                taskDataList[slot.ID].PostTask();
+            }
         }
     );
     FunctionExitHelper_t ExitHelper([&]() {
@@ -76,7 +80,7 @@ std::tuple< bool, std::shared_ptr<const FolderManifest_t>> gen_folder_manifest_b
         auto IDopt = TaskCounter.GetFreeSlot();
         if (IDopt.has_value()) {
             auto i = *IDopt;
-            auto task = FileBackupManager->GenFolderChunkDataGetNextFileTask(workHandle,
+            auto [task,postTask] = FileBackupManager->GenFolderChunkDataGetNextFileTask(workHandle,
                 [&](IChunkConverter* ChunkConverter,const char8_t* name, uint32_t namelen, const char* content, uint32_t contentlen) {
                     if (!chunkOutPathStr.empty()) {
                         auto outFilePath = chunkOutPath / std::u8string_view(name, namelen);
@@ -97,6 +101,7 @@ std::tuple< bool, std::shared_ptr<const FolderManifest_t>> gen_folder_manifest_b
             );
             if (task) {
                 auto [newhandle, newf] = GetTaskManagerInstance()->AddTask(taskDataList[i].WorkflowHandle, task);
+                taskDataList[i].PostTask = postTask;
                 TaskCounter.SetFuture(i, newhandle, newf);
             }
         }

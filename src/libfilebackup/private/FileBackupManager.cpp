@@ -4,12 +4,12 @@
 #include <string_convert.h>
 #include <hex.h>
 #include <FunctionExitHelper.h>
+#include <mbedtls/md5.h>
+#include <rabinkarphash.h>
+#include <std_ext.h>
+
 #include <fstream>
 #include <filesystem>
-#include <mbedtls/md5.h>
-#include <FunctionExitHelper.h>
-#include <rabinkarphash.h>
-
 #include <set>
 #include <shared_mutex>
 #include <list>
@@ -17,6 +17,7 @@
 #include <zstd.h>
 #include <mutex>
 #include <algorithm>
+#include <map>
 
 
 static KarpRabinHash EmptyHasher(FileChunkSize, CHAR_BIT * sizeof(uint32_t));
@@ -85,7 +86,7 @@ typedef struct FileChunkBuf_t {
 }FileChunkBuf_t;
 
 typedef struct GenFolderChunkDataFileTaskData_t {
-    std::filesystem::path FilePath;
+    std::unordered_map<WeakHash_t, std::set<std::string>, hash_32bit> FileAllHashMap;
     mbedtls_md5_context FileMD5ctx{};
     mbedtls_md5_context MD5ctx{};
     FChunkConverter ChunkConverter{};
@@ -96,25 +97,21 @@ typedef struct GenFolderChunkDataFileTaskData_t {
 
 typedef struct GenFolderChunkDataWorkData_t {
     EGenFolderMetaDataStatus Status{ EGenFolderMetaDataStatus::None };
+    EGenFolderMetaDataError Error{ EGenFolderMetaDataError::GFMDE_OK };
     IFileBackupManagerInterface::TGenFolderMetaDataFinishDelegate FinishDelegate;
     std::filesystem::path WorkPath;
     uint64_t ToltalSize{ 0 };
     std::atomic<uint64_t> CompleteSize{ 0 };
-    
-    std::shared_mutex HashMapMtx;
-    std::unordered_map<WeakHash_t, std::set<std::string>> AllHashMap;
-    std::vector<std::shared_ptr<FileChunkBuf_t>> FileChunkBufPool;
+    std::map<uint64_t, std::set<std::u8string_view>> FileItrList;
+
+    //std::shared_mutex FileTaskMtx;
+    std::unordered_map<WeakHash_t, std::set<std::string>, hash_32bit> AllHashMap;
+    std::unordered_map<std::u8string_view, std::shared_ptr<GenFolderChunkDataFileTaskData_t>> FileTasks;
+    std::vector<std::shared_ptr<GenFolderChunkDataFileTaskData_t>> FileTaskPool;
+
+    FolderManifest_t FolderManifest;
     std::shared_ptr<GenFolderMetaDataProcess_t> OutProcess;
     std::shared_ptr<FolderManifest_t> OutFolderManifest;
-
-    std::shared_mutex DirItrMtx;
-    std::filesystem::recursive_directory_iterator DirItr;
-
-    std::shared_mutex FileTaskMtx;
-    std::unordered_map<std::u8string_view, std::shared_ptr<GenFolderChunkDataFileTaskData_t>> FileTasks;
-
-    std::shared_mutex FolderChunkDataMtx;
-    FolderManifest_t FolderManifest;
 }GenFolderChunkDataWorkData_t;
 
 
@@ -126,13 +123,14 @@ public:
 
     CommonHandle_t GenFolderChunkData(const char8_t* path, TGenFolderMetaDataFinishDelegate Delegate) override;
     bool GenFolderChunkDataAddHash(CommonHandle_t handle, TGetNextHashPairCB CB) override;
-    TOneFileChunkDataTask GenFolderChunkDataGetNextFileTask(CommonHandle_t handle, TNewFileChunkDelegate) override;
+    std::tuple<TOneFileChunkDataTask, TOneFileChunkDataPostProcessingTask> GenFolderChunkDataGetNextFileTask(CommonHandle_t handle, TNewFileChunkDelegate) override;
     std::shared_ptr<const GenFolderMetaDataProcess_t> GenFolderChunkDataGetProcess(CommonHandle_t handle) override;
     std::shared_ptr<const FolderManifest_t> GetFolderChunkData(CommonHandle_t handle);
     void Tick(float delta) override;
 
 
     void GenFolderChunkDataFileTask(this FFileBackupManager& self, std::shared_ptr<GenFolderChunkDataWorkData_t> pFolderWorkData, std::shared_ptr< GenFolderChunkDataFileTaskData_t> pFileTaskData);
+    void GenFolderChunkDataFilePostProcessingTask(this FFileBackupManager& self, std::shared_ptr<GenFolderChunkDataWorkData_t> pFolderWorkData, std::shared_ptr< GenFolderChunkDataFileTaskData_t> pFileTaskData);
 
     std::unordered_map<CommonHandle_t, std::shared_ptr<GenFolderChunkDataWorkData_t>>GenFolderMetaDataWorkDataList;
 };
@@ -166,7 +164,7 @@ bool FFileBackupManager::GenFolderChunkDataAddHash(CommonHandle_t handle, TGetNe
     char hexName[HexNameStrLen + 1];
     uint32_t inHexNameStrLen{ HexNameStrLen };
     uint8_t hexBin[HexNameStrLen / 2];
-    const char* strongHashBytes= (char*)hexBin+sizeof(WeakHash_t);
+    const char* strongHashBytes = (char*)hexBin + sizeof(WeakHash_t);
     while (CB((char8_t*)hexName, inHexNameStrLen)) {
         FunctionExitHelper_t helper([&]() {
             inHexNameStrLen = HexNameStrLen;
@@ -178,7 +176,7 @@ bool FFileBackupManager::GenFolderChunkDataAddHash(CommonHandle_t handle, TGetNe
         if (!hexres) {
             continue;
         }
-        auto [pair, res] = pFolderWorkData->AllHashMap.try_emplace(*(WeakHash_t*)hexBin, std::set<std::string>{std::string(strongHashBytes, StrongHashBit/8)});
+        auto [pair, res] = pFolderWorkData->AllHashMap.try_emplace(*(WeakHash_t*)hexBin, std::set<std::string>{std::string(strongHashBytes, StrongHashBit / 8)});
         if (!res) {
             pair->second.insert(strongHashBytes);
         }
@@ -186,64 +184,55 @@ bool FFileBackupManager::GenFolderChunkDataAddHash(CommonHandle_t handle, TGetNe
     return true;
 }
 
-IFileBackupManagerInterface::TOneFileChunkDataTask FFileBackupManager::GenFolderChunkDataGetNextFileTask(CommonHandle_t handle, TNewFileChunkDelegate NewFileChunkDelegate)
+std::tuple<IFileBackupManagerInterface::TOneFileChunkDataTask, IFileBackupManagerInterface::TOneFileChunkDataPostProcessingTask> FFileBackupManager::GenFolderChunkDataGetNextFileTask(CommonHandle_t handle, TNewFileChunkDelegate NewFileChunkDelegate)
 {
     auto itr = GenFolderMetaDataWorkDataList.find(handle);
     if (itr == GenFolderMetaDataWorkDataList.end()) {
-        return nullptr;
+        return { nullptr,nullptr };
     }
     auto& pFolderWorkData = itr->second;
-    std::shared_ptr< FileChunksData_t> pFileChunksData;
+    if (pFolderWorkData->FileItrList.empty()) {
+        return { nullptr,nullptr };
+    }
+    auto& fileList = pFolderWorkData->FileItrList.rbegin()->second;
+    auto& fileName = *fileList.begin();
+    auto filesItr = pFolderWorkData->FolderManifest.Files.find(fileName);
+    assert(filesItr != pFolderWorkData->FolderManifest.Files.end());
+    auto& pFileChunksData = filesItr->second;
+
+    if (fileList.size() > 1) {
+        fileList.erase(fileName);
+    }
+    else {
+        pFolderWorkData->FileItrList.erase(--pFolderWorkData->FileItrList.rbegin().base());
+    }
+
     std::shared_ptr< GenFolderChunkDataFileTaskData_t> pFileTaskData;
     {
-        std::scoped_lock lock(pFolderWorkData->DirItrMtx);
-        auto& i = pFolderWorkData->DirItr;
-        for (; i != std::filesystem::recursive_directory_iterator(); ++i)
-        {
-            if (!i->is_directory()) {
-                break;
-            }
-        }
-        if (i == std::filesystem::recursive_directory_iterator()) {
-            return nullptr;
-        }
-        pFileTaskData = std::make_shared<GenFolderChunkDataFileTaskData_t>();
-        pFileTaskData->FilePath = i->path();
-
-        pFileTaskData->FileChunkBuf = std::make_shared<FileChunkBuf_t>();
-        pFileChunksData = std::make_shared<FileChunksData_t>();
-        pFileChunksData->FileSize = i->file_size();
-        pFileChunksData->FileName = (const char*)pFileTaskData->FilePath.lexically_relative(pFolderWorkData->WorkPath).u8string().c_str();
-        i++;
-    }
-    pFileTaskData->ChunkConverter.UpdateConvertDirection(EConvertDirection::ToChunkFile);
-    pFileTaskData->NewFileChunkDelegate = NewFileChunkDelegate;
-    mbedtls_md5_init(&pFileTaskData->MD5ctx);
-    mbedtls_md5_init(&pFileTaskData->FileMD5ctx);
-    mbedtls_md5_starts(&pFileTaskData->FileMD5ctx);
-    pFileTaskData->FileChunksData = pFileChunksData;
-    {
-        std::scoped_lock lock(pFolderWorkData->FolderChunkDataMtx);
-        auto res = pFolderWorkData->FolderManifest.Files.try_emplace(ConvertStringTotU8View(pFileTaskData->FileChunksData->FileName), pFileChunksData);
-        if (!res.second) {
-            return nullptr;
-        }
-    }
-    {
-        std::scoped_lock lock(pFolderWorkData->FileTaskMtx);
-        std::shared_ptr<FileChunkBuf_t> pFileChunkBuf;
-        if (pFolderWorkData->FileChunkBufPool.size() > 0) {
-            pFileChunkBuf = pFolderWorkData->FileChunkBufPool.back();
-            pFolderWorkData->FileChunkBufPool.pop_back();
+        //std::scoped_lock lock(pFolderWorkData->FileTaskMtx);
+        if (pFolderWorkData->FileTaskPool.size() > 0) {
+            pFileTaskData = pFolderWorkData->FileTaskPool.back();
+            pFolderWorkData->FileTaskPool.pop_back();
         }
         else {
-            pFileChunkBuf = std::make_shared<FileChunkBuf_t>();
+            pFileTaskData = std::make_shared<GenFolderChunkDataFileTaskData_t>();
+            pFileTaskData->FileChunkBuf = std::make_shared<FileChunkBuf_t>();;
+            pFileTaskData->ChunkConverter.UpdateConvertDirection(EConvertDirection::ToChunkFile);
         }
-        pFolderWorkData->FileTasks.try_emplace(ConvertStringTotU8View(pFileTaskData->FileChunksData->FileName), pFileTaskData);
+        pFileTaskData->FileChunksData = pFileChunksData;
+        auto [itr, res] = pFolderWorkData->FileTasks.try_emplace(ConvertStringTotU8View(pFileTaskData->FileChunksData->FileName), pFileTaskData);
+        if (!res) {
+            return { nullptr,nullptr };
+        }
+        pFileTaskData->NewFileChunkDelegate = NewFileChunkDelegate;
+        mbedtls_md5_init(&pFileTaskData->MD5ctx);
+        mbedtls_md5_init(&pFileTaskData->FileMD5ctx);
+        mbedtls_md5_starts(&pFileTaskData->FileMD5ctx);
+        pFileTaskData->FileAllHashMap = pFolderWorkData->AllHashMap;
     }
-    
     TOneFileChunkDataTask func = std::bind(FFileBackupManager::GenFolderChunkDataFileTask, *this, pFolderWorkData, pFileTaskData);
-    return func;
+    TOneFileChunkDataPostProcessingTask postfunc = std::bind(FFileBackupManager::GenFolderChunkDataFilePostProcessingTask, *this, pFolderWorkData, pFileTaskData);
+    return { func,postfunc };
 }
 
 std::shared_ptr<const GenFolderMetaDataProcess_t> FFileBackupManager::GenFolderChunkDataGetProcess(CommonHandle_t handle)
@@ -267,10 +256,9 @@ std::shared_ptr<const FolderManifest_t> FFileBackupManager::GetFolderChunkData(C
     }
     auto& pFolderWorkData = itr->second;
 
-    std::shared_lock lock(pFolderWorkData->FolderChunkDataMtx, std::try_to_lock);
-    if (lock.owns_lock()) {
-        *pFolderWorkData->OutFolderManifest = pFolderWorkData->FolderManifest;
-    }
+
+    *pFolderWorkData->OutFolderManifest = pFolderWorkData->FolderManifest;
+
     return pFolderWorkData->OutFolderManifest;
 }
 
@@ -280,12 +268,25 @@ void FFileBackupManager::Tick(float delta)
     for (auto& [handle, pFolderWorkData] : GenFolderMetaDataWorkDataList) {
         switch (pFolderWorkData->Status) {
         case EGenFolderMetaDataStatus::None: {
-            pFolderWorkData->DirItr = std::filesystem::recursive_directory_iterator(pFolderWorkData->WorkPath);
             for (auto i = std::filesystem::recursive_directory_iterator(pFolderWorkData->WorkPath);
                 i != std::filesystem::recursive_directory_iterator();
                 ++i)
             {
+                if (i->is_directory()) {
+                    continue;
+                }
                 pFolderWorkData->ToltalSize += i->file_size();
+                auto pFileChunksData = std::make_shared<FileChunksData_t>();
+                pFileChunksData->FileSize = i->file_size();
+                pFileChunksData->FileName = (const char*)i->path().lexically_relative(pFolderWorkData->WorkPath).u8string().c_str();
+                auto [itr, res] = pFolderWorkData->FolderManifest.Files.try_emplace(ConvertStringTotU8View(pFileChunksData->FileName), pFileChunksData);
+                if (!res) {
+                    pFolderWorkData->Status = EGenFolderMetaDataStatus::Finished;
+                    pFolderWorkData->Error = EGenFolderMetaDataError::GFMDE_FS_ERROR;
+                    break;
+                }
+                auto [fileListItr, _] = pFolderWorkData->FileItrList.try_emplace(pFileChunksData->FileSize);
+                fileListItr->second.insert(ConvertStringTotU8View(pFileChunksData->FileName));
             }
             pFolderWorkData->FolderManifest.HexNameLen = HexNameStrLen;
             auto pConverter = NewChunkConverter();
@@ -295,7 +296,7 @@ void FFileBackupManager::Tick(float delta)
             break;
         }
         case EGenFolderMetaDataStatus::Inited: {
-            if (pFolderWorkData->DirItr == std::filesystem::recursive_directory_iterator() &&
+            if (pFolderWorkData->FileItrList.empty() &&
                 pFolderWorkData->FileTasks.empty()) {
                 GetFolderChunkData(handle);
                 pFolderWorkData->FinishDelegate(pFolderWorkData->OutFolderManifest);
@@ -366,13 +367,14 @@ void FFileBackupManager::GenFolderChunkDataFileTask(this FFileBackupManager& sel
         std::list<std::shared_ptr<FileChunkCache_t>> chunkCachePool;
     }FileChunkCacheContainer_t;
     FileChunkCacheContainer_t fileChunkCacheContainer;
-    std::ifstream input(pFileTaskData->FilePath, std::ios::binary);
+    auto filePath = pFolderWorkData->WorkPath / pFileTaskData->FileChunksData->FileName;
+    std::ifstream input(filePath, std::ios::binary);
     unsigned char output[16];
     //auto startPos = input.tellg();
     uint64_t lastChunkEndPos{ 0 };
     std::streamoff consumedBytes{ 0 };
     int32_t waitAppendDataLen = pFileTaskData->FileChunksData->FileSize % FileChunkSize == 0 ? 0 : FileChunkSize - pFileTaskData->FileChunksData->FileSize % FileChunkSize;
-
+    bool bFlushAllChunkCache{ false };
 
     int bytesAfterLastChunk = 0;
     auto rollingHashNeedEat = FileChunkSize;
@@ -402,12 +404,12 @@ void FFileBackupManager::GenFolderChunkDataFileTask(this FFileBackupManager& sel
         };
 
     auto processChunkChacheFunc = [&]() {
-        bool fAll = fileChunkCacheContainer.back()->StartPos + FileChunkSize >= pFileTaskData->FileChunksData->FileSize;
+        bFlushAllChunkCache = fileChunkCacheContainer.back()->StartPos + FileChunkSize >= pFileTaskData->FileChunksData->FileSize;
         while (!fileChunkCacheContainer.empty()) {
-            auto pChunkCache = fileChunkCacheContainer.front();
+            auto& pChunkCache = fileChunkCacheContainer.front();
             auto& chunkCache = *pChunkCache;
             auto ChunkEndPos = chunkCache.StartPos + FileChunkSize;
-            if (!fAll) {
+            if (!bFlushAllChunkCache) {
                 if (consumedBytes - chunkCache.StartPos < FileChunkSize * 3) {
                     return;
                 }
@@ -431,22 +433,21 @@ void FFileBackupManager::GenFolderChunkDataFileTask(this FFileBackupManager& sel
             }
             auto strongHashStr = std::string((const char*)chunkCache.StrongHash);
             {
-                std::scoped_lock lck(pFolderWorkData->HashMapMtx);
-                auto [pair, res] = pFolderWorkData->AllHashMap.try_emplace(*(WeakHash_t*)&chunkCache.WeakHash, std::set<std::string>{strongHashStr});
-                if (!res) {
-                    if (pair->second.find(strongHashStr) != pair->second.end()) {
-                        continue;
-                    }
-                    pair->second.insert(strongHashStr);
+                auto itr=pFileTaskData->FileAllHashMap.find(*(WeakHash_t*)&chunkCache.WeakHash);
+                if (itr == pFileTaskData->FileAllHashMap.end()) {
+                    pFileTaskData->FileAllHashMap.try_emplace(*(WeakHash_t*)&chunkCache.WeakHash, std::set<std::string>{strongHashStr});
+                }
+                else {
+                    itr->second.insert(strongHashStr);
                 }
             }
             auto pChunkData = std::make_shared<FileChunkData_t>();
-            auto &ChunkData = *pChunkData;
+            auto& ChunkData = *pChunkData;
             ChunkData.StartPos = chunkCache.StartPos;
             to_upper_hex(ChunkData.HexName, (uint8_t*)&chunkCache.WeakHash, sizeof(chunkCache.WeakHash));
             to_upper_hex(ChunkData.HexName + sizeof(WeakHash_t) * 2, chunkCache.StrongHash, sizeof(chunkCache.StrongHash));
             ChunkData.HexName[sizeof(WeakHash_t) * 2 + sizeof(chunkCache.StrongHash) * 2] = 0;
-            pFileTaskData->NewFileChunkDelegate(&pFileTaskData->ChunkConverter,(const char8_t*)ChunkData.HexName, uint32_t(sizeof(chunkCache.WeakHash) * 2 + sizeof(chunkCache.StrongHash) * 2), (const char*)rawData, FileChunkSize);
+            pFileTaskData->NewFileChunkDelegate(&pFileTaskData->ChunkConverter, (const char8_t*)ChunkData.HexName, uint32_t(sizeof(chunkCache.WeakHash) * 2 + sizeof(chunkCache.StrongHash) * 2), (const char*)rawData, FileChunkSize);
             pFileTaskData->FileChunksData->Chunks.try_emplace((const char8_t*)ChunkData.HexName, pChunkData);
         }
         };
@@ -484,18 +485,16 @@ void FFileBackupManager::GenFolderChunkDataFileTask(this FFileBackupManager& sel
                     WeakHash_t weakHash;
                     auto endPos = firstCache->StartPos + FileChunkSize * 2;
                     caculateAllHashInConsumedBuf(uint32_t(consumedBytes - endPos), weakHash, output);
-                    bool bWeakExist{false};
-                    bool bStrongExist{false};
-                    std::shared_lock lck(pFolderWorkData->HashMapMtx);
-                    auto hashItr = pFolderWorkData->AllHashMap.find(hasher.hashvalue);
-                    if (hashItr != pFolderWorkData->AllHashMap.end()) {
-                        bWeakExist=true;
+                    bool bWeakExist{ false };
+                    bool bStrongExist{ false };
+                    auto hashItr = pFileTaskData->FileAllHashMap.find(hasher.hashvalue);
+                    if (hashItr != pFileTaskData->FileAllHashMap.end()) {
+                        bWeakExist = true;
                         auto stronHashItr = hashItr->second.find(std::string((const char*)output));
                         if (stronHashItr != hashItr->second.end()) {
-                            bStrongExist=true;
+                            bStrongExist = true;
                         }
                     }
-                    lck.unlock();
                     if (bStrongExist) {
                         internalCacheNewFunc(endPos, weakHash, output, true);
                     }
@@ -517,38 +516,39 @@ void FFileBackupManager::GenFolderChunkDataFileTask(this FFileBackupManager& sel
         processChunkChacheFunc();
         };
 
-    while (!input.eof() || waitAppendDataLen > 0) {
+    while (!bFlushAllChunkCache) {
         //read file to FileChunkBuf
         while (!input.eof()) {
-            auto emptyBuf = FileChunkBuf.GetEmptyBuf();
-            if (std::get<1>(emptyBuf) == 0) {
+            auto [freeBuf,freeBufSize] = FileChunkBuf.GetEmptyBuf();
+            if (freeBufSize == 0) {
                 break;
             }
-            input.read(std::get<0>(emptyBuf), std::get<1>(emptyBuf));
+            input.read(freeBuf, freeBufSize);
             auto extractLen = input.gcount();
             if (extractLen == 0) {
                 break;
             }
-            caculateFileHash((const unsigned char*)std::get<0>(emptyBuf), extractLen);
+            caculateFileHash((const unsigned char*)freeBuf, extractLen);
             FileChunkBuf.FillSize(extractLen);
         }
         while (waitAppendDataLen > 0) {
             if (!input.eof()) {
                 break;
             }
-            auto emptyBuf = FileChunkBuf.GetEmptyBuf();
-            if (std::get<1>(emptyBuf) == 0) {
+            auto [freeBuf, freeBufSize] = FileChunkBuf.GetEmptyBuf();
+            if (freeBufSize == 0) {
                 break;
             }
-            memset(std::get<0>(emptyBuf), 0, std::get<1>(emptyBuf));
-            waitAppendDataLen -= std::get<1>(emptyBuf);
-            FileChunkBuf.FillSize(std::get<1>(emptyBuf));
+            auto fillSize = std::min(freeBufSize, uint32_t(waitAppendDataLen));
+            memset(freeBuf, 0, fillSize);
+            waitAppendDataLen -= fillSize;
+            FileChunkBuf.FillSize(fillSize);
         }
         //consume FileChunkBuf
-        auto ContentBuf = FileChunkBuf.GetContentBuf();
-        for (int i = 0; i < std::get<1>(ContentBuf); i++) {
+        auto [contentBuf, contentBufLen] = FileChunkBuf.GetContentBuf();
+        for (int i = 0; i < contentBufLen; i++) {
             auto ConsumedBuf = FileChunkBuf.GetConsumedBuf(0, FileChunkSize);
-            auto inBytePtr = std::get<0>(ContentBuf) + i;
+            auto inBytePtr = contentBuf + i;
             FileChunkBuf.EatSize(1);
             consumedBytes++;
             bytesAfterLastChunk++;
@@ -565,39 +565,51 @@ void FFileBackupManager::GenFolderChunkDataFileTask(this FFileBackupManager& sel
                 hasher.update(*inBytePtr, *std::get<0>(std::get<0>(ConsumedBuf)));
             }
 
-            bool bWeakExist{false};
-            bool bStrongExist{false};
-            std::shared_lock lck(pFolderWorkData->HashMapMtx);
-            auto hashItr = pFolderWorkData->AllHashMap.find(hasher.hashvalue);
-            if (hashItr != pFolderWorkData->AllHashMap.end()) {
-                bWeakExist=true;
+            bool bWeakExist{ false };
+            bool bStrongExist{ false };
+            auto hashItr = pFileTaskData->FileAllHashMap.find(hasher.hashvalue);
+            if (hashItr != pFileTaskData->FileAllHashMap.end()) {
+                bWeakExist = true;
                 caculateHashInConsumedBuf(0, output);
                 auto stronHashItr = hashItr->second.find(std::string((const char*)output));
                 if (stronHashItr != hashItr->second.end()) {
-                    bStrongExist=true;
+                    bStrongExist = true;
                 }
             }
-            lck.unlock();
-            if(bWeakExist){
-                if(bStrongExist){
+
+            if (bWeakExist) {
+                if (bStrongExist) {
                     cacheNewFunc(hasher.hashvalue, nullptr, true);
-                }else{
+                }
+                else {
                     cacheNewFunc(hasher.hashvalue, output);
                 }
-            }else{
+            }
+            else {
                 cacheNewFunc(hasher.hashvalue);
             }
-            if (consumedBytes > pFileTaskData->FileChunksData->FileSize) {
+            if (bFlushAllChunkCache) {
+                FileChunkBuf.EatSize(contentBufLen - i - 1);
                 break;
             }
         }
     }
-    {
-        std::scoped_lock lock(pFolderWorkData->FileTaskMtx);
-        pFolderWorkData->FileTasks.erase(ConvertStringTotU8View(pFileTaskData->FileChunksData->FileName));
-        mbedtls_md5_finish(&pFileTaskData->FileMD5ctx, output);
-        to_upper_hex(pFolderWorkData->FolderManifest.Files[ConvertStringTotU8View(pFileTaskData->FileChunksData->FileName)]->FileHash, output, sizeof(output));
+    mbedtls_md5_finish(&pFileTaskData->FileMD5ctx, output);
+    to_upper_hex(pFolderWorkData->FolderManifest.Files[ConvertStringTotU8View(pFileTaskData->FileChunksData->FileName)]->FileHash, output, sizeof(output));
+
+}
+
+void FFileBackupManager::GenFolderChunkDataFilePostProcessingTask(this FFileBackupManager& self, std::shared_ptr<GenFolderChunkDataWorkData_t> pFolderWorkData, std::shared_ptr<GenFolderChunkDataFileTaskData_t> pFileTaskData)
+{
+    for (auto& [weekHash,strongSet]: pFileTaskData->FileAllHashMap) {
+        auto [itr,res]=pFolderWorkData->AllHashMap.try_emplace(weekHash, strongSet);
+        if (res) {
+            continue;
+        }
+        itr->second.merge(strongSet);
     }
+    pFolderWorkData->FileTasks.erase(ConvertStringTotU8View(pFileTaskData->FileChunksData->FileName));
+    pFolderWorkData->FileTaskPool.push_back(pFileTaskData);
 }
 
 
