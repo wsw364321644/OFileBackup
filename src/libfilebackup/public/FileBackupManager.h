@@ -32,13 +32,14 @@ public:
     virtual bool GenFolderChunkDataAddHash(CommonHandle_t handle, TGetNextHashPairCB) = 0;
 
     typedef std::function<void()> TOneFileChunkDataTask;
+    typedef std::function<void(float)> TOneFileChunkDataReadFileTick;
     typedef std::function<void()> TOneFileChunkDataPostProcessingTask;
     typedef std::function<void(IChunkConverter*, const char8_t*, const uint32_t, const char*, const uint32_t)> TNewFileChunkDelegate;
     /***
     * TOneFileChunkDataTask can parallel execute 
     * TOneFileChunkDataPostProcessingTask is not  multi-thread safe
     ***/
-    virtual std::tuple<TOneFileChunkDataTask, TOneFileChunkDataPostProcessingTask> GenFolderChunkDataGetNextFileTask(CommonHandle_t handle, TNewFileChunkDelegate) = 0;
+    virtual std::tuple<TOneFileChunkDataTask, TOneFileChunkDataReadFileTick, TOneFileChunkDataPostProcessingTask> GenFolderChunkDataGetNextFileTask(CommonHandle_t handle, TNewFileChunkDelegate) = 0;
 
     virtual std::shared_ptr<const GenFolderMetaDataProcess_t> GenFolderChunkDataGetProcess(CommonHandle_t handle) = 0;
 

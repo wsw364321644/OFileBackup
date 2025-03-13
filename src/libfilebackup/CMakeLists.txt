@@ -16,6 +16,7 @@ function(configure_library TARGET_NAME)
     target_link_libraries(${TARGET_NAME} PRIVATE MbedTLS::mbedcrypto)
     target_link_libraries(${TARGET_NAME} PRIVATE zstd::libzstd_static)
     target_link_libraries(${TARGET_NAME} PRIVATE nlohmann_json::nlohmann_json)
+    target_link_libraries(${TARGET_NAME} PRIVATE Boost::headers)
 
     AddTargetInclude(${TARGET_NAME})
     

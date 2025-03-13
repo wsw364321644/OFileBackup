@@ -14,8 +14,8 @@ else()
   set(_bin_suffix 32)
 endif()
 
-set(OCmakeUtil_TAG 35dc84a57e2222e4ede01f58d48deea147c9a098)
-set(UTILPP_TAG c073540b7cebecdf1844fc64d2bf9cfb64d358ab)
+set(OCmakeUtil_TAG e816493cd13c65f0f044446c2ab775dea99eae12)
+set(UTILPP_TAG 1d72d318b3952a943b6451f0e4706578d4fa94a8)
 
 project(OFileBackup VERSION ${VERSION})
 enable_language(CXX ASM C)
@@ -59,6 +59,11 @@ FetchContent_MakeAvailable(OCmakeUtil)
 include(ProjectImport)
 include(TargetImport)
 
+if(STATIC_CRT)
+  ImportProject(Boost STATIC_CRT STATIC URL "https://github.com/boostorg/boost/releases/download/boost-1.87.0/boost-1.87.0-cmake.tar.xz")
+else()
+  ImportProject(Boost STATIC URL "https://github.com/boostorg/boost/releases/download/boost-1.87.0/boost-1.87.0-cmake.tar.xz")
+endif()
 ImportProject(libuv STATIC_CRT SSH FIND TAG be6b81a352d17513c95be153afcb3148f1a451cd) # 1.47.0
 ImportProject(MbedTLS STATIC STATIC_CRT SSH FIND TAG 2ca6c285a0dd3f33982dd57299012dacab1ff206) # 3.6.0
 ImportProject(zstd STATIC_CRT SSH FIND TAG f0937b83d9a32cb2b59f99bbc4db717ae6e83c9b) # after v1.5.6

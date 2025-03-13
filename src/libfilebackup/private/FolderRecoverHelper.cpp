@@ -100,7 +100,7 @@ CommonHandle_t FFolderRecoverHelper::AddTask(std::shared_ptr < const FolderManif
     auto& FolderRecoverWorkData = *pFolderRecoverWorkData;
     FolderRecoverWorkData.Manifest = manifest;
     FolderRecoverWorkData.SourceManifest = sourceManifest;
-    auto res=FolderRecoverWorkDataList.try_emplace(CommonHandle_t(), pFolderRecoverWorkData);
+    auto res=FolderRecoverWorkDataList.try_emplace(CommonHandle_t::atomic_count, pFolderRecoverWorkData);
     if (!res.second) {
         return NullHandle;
     }
