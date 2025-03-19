@@ -11,6 +11,9 @@ public:
     void* GetChunkFileBuf() override {
         return  ZSTDBuf ;
     }
+    void UpdateChunkFileSize(size_t newSize) override {
+        ZSTDBufContentSize = newSize;
+    }
     size_t GetChunkFileSize() const override {
         return ZSTDBufContentSize;
     }

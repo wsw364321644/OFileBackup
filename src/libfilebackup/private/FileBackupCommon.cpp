@@ -9,7 +9,7 @@ void to_json(nlohmann::json& j, const FolderManifest_t& FolderManifest) {
         auto FileNode = nlohmann::json(nlohmann::json::value_t::object);
         auto FileChunksNode = nlohmann::json(nlohmann::json::value_t::array);
         fileData->FileHash[StrongHashBit / 4] = 0;
-        for (auto& [chunkName,pChunk] : fileData->Chunks) {
+        for (auto& pChunk : fileData->Chunks) {
             auto& chunk = *pChunk;
             FileChunksNode.push_back(nlohmann::json{ {"HexName",chunk.HexName},{"StartPos",chunk.StartPos} });
         }
@@ -52,7 +52,7 @@ void from_json(const nlohmann::json& j, FolderManifest_t& FolderManifest) {
             auto& HexName = ChunkNode["HexName"].get_ref<const nlohmann::json::string_t&>();
             memcpy(chunkData.HexName, HexName.c_str(), HexName.length() + 1);
             chunkData.StartPos = ChunkNode["StartPos"].get_ref<const nlohmann::json::number_integer_t&>();
-            pFileChunksData->Chunks.try_emplace(std::u8string_view((const char8_t*)chunkData.HexName), pChunkData);
+            pFileChunksData->Chunks.emplace(pChunkData);
         }
     }
 }
@@ -94,13 +94,13 @@ std::shared_ptr<const FolderManifestCompareResult_t> CompareFolderManifest(const
     auto out = std::make_shared<FolderManifestCompareResult_t>();
     auto& HexNames = out->MissingFileChunks;
     for (auto& [pathstr, FileChunksData] : target.Files) {
-        for (auto& [chunkName,pFileChunk] : FileChunksData->Chunks) {
+        for (auto& pFileChunk : FileChunksData->Chunks) {
             auto& FileChunk = *pFileChunk;
             HexNames.insert(FileChunk.HexName);
         }
     }
     for (auto& [pathstr, FileChunksData] : source.Files) {
-        for (auto& [chunkName, pFileChunk] : FileChunksData->Chunks) {
+        for (auto& pFileChunk : FileChunksData->Chunks) {
             auto& FileChunk = *pFileChunk;
             HexNames.erase(FileChunk.HexName);
         }

@@ -409,7 +409,6 @@ void FFileBackupManager::GenFolderChunkDataTask(this FFileBackupManager& self, s
         };
 
     auto processChunkChacheFunc = [&]() {
-
         while (!fileChunkCacheContainer.empty()) {
             auto& pChunkCache = fileChunkCacheContainer.front();
             auto& chunkCache = *pChunkCache;
@@ -425,25 +424,23 @@ void FFileBackupManager::GenFolderChunkDataTask(this FFileBackupManager& self, s
             pFolderWorkData->CompleteSize += ChunkEndPos - lastChunkEndPos;
             lastChunkEndPos = ChunkEndPos;
             fileChunkCacheContainer.pop_front();
-
-            if (chunkCache.fChunkAlreadyExist) {
-                return;
-            }
-
-            char* rawData = FileChunkBuf.GetContinuousConsumedBuf(consumedBytes - chunkCache.StartPos - FileChunkSize, FileChunkSize);
-            if (!chunkCache.fStrongHash) {
-                mbedtls_md5_starts(&pFileTaskData->MD5ctx);
-                mbedtls_md5_update(&pFileTaskData->MD5ctx, (const unsigned char*)rawData, FileChunkSize);
-                mbedtls_md5_finish(&pFileTaskData->MD5ctx, chunkCache.StrongHash);
-            }
-            auto strongHashStr = std::string((const char*)chunkCache.StrongHash);
-            {
-                auto itr=pFileTaskData->FileAllHashMap.find(*(WeakHash_t*)&chunkCache.WeakHash);
-                if (itr == pFileTaskData->FileAllHashMap.end()) {
-                    pFileTaskData->FileAllHashMap.try_emplace(*(WeakHash_t*)&chunkCache.WeakHash, boost::unordered_flat_set<std::string>{strongHashStr});
+            char* rawData;
+            if (!chunkCache.fChunkAlreadyExist) {
+                rawData = FileChunkBuf.GetContinuousConsumedBuf(consumedBytes - chunkCache.StartPos - FileChunkSize, FileChunkSize);
+                if (!chunkCache.fStrongHash) {
+                    mbedtls_md5_starts(&pFileTaskData->MD5ctx);
+                    mbedtls_md5_update(&pFileTaskData->MD5ctx, (const unsigned char*)rawData, FileChunkSize);
+                    mbedtls_md5_finish(&pFileTaskData->MD5ctx, chunkCache.StrongHash);
                 }
-                else {
-                    itr->second.insert(strongHashStr);
+                auto strongHashStr = std::string((const char*)chunkCache.StrongHash);
+                {
+                    auto itr = pFileTaskData->FileAllHashMap.find(*(WeakHash_t*)&chunkCache.WeakHash);
+                    if (itr == pFileTaskData->FileAllHashMap.end()) {
+                        pFileTaskData->FileAllHashMap.try_emplace(*(WeakHash_t*)&chunkCache.WeakHash, boost::unordered_flat_set<std::string>{strongHashStr});
+                    }
+                    else {
+                        itr->second.insert(strongHashStr);
+                    }
                 }
             }
             auto pChunkData = std::make_shared<FileChunkData_t>();
@@ -452,8 +449,11 @@ void FFileBackupManager::GenFolderChunkDataTask(this FFileBackupManager& self, s
             to_upper_hex(ChunkData.HexName, (uint8_t*)&chunkCache.WeakHash, sizeof(chunkCache.WeakHash));
             to_upper_hex(ChunkData.HexName + sizeof(WeakHash_t) * 2, chunkCache.StrongHash, sizeof(chunkCache.StrongHash));
             ChunkData.HexName[sizeof(WeakHash_t) * 2 + sizeof(chunkCache.StrongHash) * 2] = 0;
-            pFileTaskData->NewFileChunkDelegate(&pFileTaskData->ChunkConverter, (const char8_t*)ChunkData.HexName, uint32_t(sizeof(chunkCache.WeakHash) * 2 + sizeof(chunkCache.StrongHash) * 2), (const char*)rawData, FileChunkSize);
-            pFileTaskData->FileChunksData->Chunks.try_emplace((const char8_t*)ChunkData.HexName, pChunkData);
+            pFileTaskData->FileChunksData->Chunks.emplace(pChunkData);
+            if (!chunkCache.fChunkAlreadyExist) {
+                pFileTaskData->NewFileChunkDelegate(&pFileTaskData->ChunkConverter, (const char8_t*)ChunkData.HexName, uint32_t(sizeof(chunkCache.WeakHash) * 2 + sizeof(chunkCache.StrongHash) * 2), (const char*)rawData, FileChunkSize);
+            }
+            
         }
         };
     auto internalCacheNewFunc = [&](std::streamoff posEnd, uint32_t weakhash, const unsigned char stronghash[16] = nullptr, bool fExist = false) {

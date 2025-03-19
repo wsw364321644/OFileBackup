@@ -15,7 +15,7 @@ else()
 endif()
 
 set(OCmakeUtil_TAG e816493cd13c65f0f044446c2ab775dea99eae12)
-set(UTILPP_TAG 1d72d318b3952a943b6451f0e4706578d4fa94a8)
+set(UTILPP_TAG 889f9d145e172bac93ff5b1fc230a1e31d35ec70)
 
 project(OFileBackup VERSION ${VERSION})
 enable_language(CXX ASM C)
