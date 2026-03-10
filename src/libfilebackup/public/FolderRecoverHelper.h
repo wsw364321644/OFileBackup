@@ -47,20 +47,20 @@ typedef struct FolderRecoverProgress_t {
 class  IFolderRecoverHelperInterface {
 public:
     typedef std::function<void(EFolderRecoverStatus)> TConstructStatusChangedDelegate;
-    virtual CommonHandle_t AddTask(std::shared_ptr <const FolderManifest_t> manifest, std::shared_ptr <const FolderManifest_t> sourceManifest, TConstructStatusChangedDelegate Delegate) = 0;
-    virtual FolderRecoverProgress_t& GetFolderRecoverProcess(CommonHandle_t handle) = 0;
+    virtual CommonHandle32_t AddTask(std::shared_ptr <const FolderManifest_t> manifest, std::shared_ptr <const FolderManifest_t> sourceManifest, TConstructStatusChangedDelegate Delegate) = 0;
+    virtual FolderRecoverProgress_t& GetFolderRecoverProcess(CommonHandle32_t handle) = 0;
 
-    virtual std::optional<const ReserveFileSpaceData_t> GetReserveNextFileSpaceData(CommonHandle_t) = 0;
-    virtual void ReserveFileSpaceComplete(CommonHandle_t, ReserveFileSpaceData_t) = 0;
-    virtual bool ImplementReserveFileSpace(CommonHandle_t,ReserveFileSpaceData_t& ConstructChunkData, std::u8string_view tempPathStr) = 0;
+    virtual std::optional<const ReserveFileSpaceData_t> GetReserveNextFileSpaceData(CommonHandle32_t) = 0;
+    virtual void ReserveFileSpaceComplete(CommonHandle32_t, ReserveFileSpaceData_t) = 0;
+    virtual bool ImplementReserveFileSpace(CommonHandle32_t,ReserveFileSpaceData_t& ConstructChunkData, std::u8string_view tempPathStr) = 0;
 
-    virtual std::shared_ptr<const ConstructChunkData_t> GetConstructNextChunkData(CommonHandle_t) = 0;
-    virtual void ChunkConstructComplete(CommonHandle_t, std::shared_ptr<const ConstructChunkData_t>) = 0;
-    virtual bool ImplementForLocalChunkConstruct(CommonHandle_t,std::shared_ptr<const ConstructChunkData_t> ConstructChunkData, std::u8string_view workPathStr, std::u8string_view chunkFolderPathStr) = 0;
+    virtual std::shared_ptr<const ConstructChunkData_t> GetConstructNextChunkData(CommonHandle32_t) = 0;
+    virtual void ChunkConstructComplete(CommonHandle32_t, std::shared_ptr<const ConstructChunkData_t>) = 0;
+    virtual bool ImplementForLocalChunkConstruct(CommonHandle32_t,std::shared_ptr<const ConstructChunkData_t> ConstructChunkData, std::u8string_view workPathStr, std::u8string_view chunkFolderPathStr) = 0;
 
-    virtual std::optional<std::u8string_view> GetNextFileNeedMove(CommonHandle_t) = 0;
-    virtual void FileMoveComplete(CommonHandle_t, std::u8string_view) = 0;
-    virtual bool ImplementFileMove(CommonHandle_t, std::u8string_view, std::u8string_view workPathStr) = 0;
+    virtual std::optional<std::u8string_view> GetNextFileNeedMove(CommonHandle32_t) = 0;
+    virtual void FileMoveComplete(CommonHandle32_t, std::u8string_view) = 0;
+    virtual bool ImplementFileMove(CommonHandle32_t, std::u8string_view, std::u8string_view workPathStr) = 0;
 
     virtual void Tick(float delta) = 0;
 };

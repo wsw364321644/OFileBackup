@@ -1,14 +1,15 @@
 #pragma once
-#include "FileBackupExportDef.h"
-#include <std_ext.h>
+
+
 #include <stdint.h>
 #include <set>
-#include <unordered_set>
 #include <unordered_map>
 #include <memory>
 #include <string>
-#include <functional>
-
+#include <system_error>
+#include <CharBuffer.h>
+#include <std_ext.h>
+#include "FileBackupExportDef.h"
 typedef uint32_t WeakHash_t;
 constexpr uint8_t StrongHashBit = 1 << 7;
 constexpr uint8_t HexNameStrLen = (sizeof(WeakHash_t) * CHAR_BIT + StrongHashBit) / 4 ;
@@ -45,9 +46,9 @@ typedef struct FolderManifest_t {
     std::unordered_map<std::u8string_view, std::shared_ptr<FileChunksData_t>, string_hash> Files;
     uint8_t HexNameLen{ HexNameStrLen };
     uint32_t ChunkFileMaxSize{ 0 };
-    LIB_FILEBACKUP_EXPORT std::shared_ptr<const std::string> to_string() const;
-    LIB_FILEBACKUP_EXPORT static std::shared_ptr<const FolderManifest_t>from_string(const char*);
-    LIB_FILEBACKUP_EXPORT static std::shared_ptr<const FolderManifest_t>from_string(const char* content,uint32_t size);
+    LIB_FILEBACKUP_EXPORT void to_string(FCharBuffer& charBuf ,std::error_code&ec) const;
+    LIB_FILEBACKUP_EXPORT static std::shared_ptr<const FolderManifest_t>from_string(FCharBuffer& str, std::error_code& ec);
+    LIB_FILEBACKUP_EXPORT static int32_t get_string_extra_space();
 }FolderManifest_t;
 
 

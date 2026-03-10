@@ -1,17 +1,9 @@
 #include "FolderRecoverHelper.h"
 #include "FileBackupInternal.h"
-#include <filesystem>
-#include <shared_mutex>
-#include <algorithm>
-#include <mutex>
-#include <list>
-#include <fstream>
-#include <cstring>
-#include <map>
-#include <stdio.h>
+
 #include <FunctionExitHelper.h>
 #include <string_convert.h>
-#include <raw_file.h>
+#include <RawFile.h>
 #include <assert.h>
 #ifdef WIN32
 #include <fcntl.h>
@@ -22,6 +14,16 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #endif
+
+#include <filesystem>
+#include <shared_mutex>
+#include <algorithm>
+#include <mutex>
+#include <list>
+#include <fstream>
+#include <cstring>
+#include <map>
+#include <stdio.h>
 constexpr uint8_t MaxChunkConstructTaskNum = 8;
 
 typedef struct SourceChunkReverseCheckData_t {
@@ -63,7 +65,7 @@ typedef struct FolderRecoverWorkData_t {
     typedef std::set<std::shared_ptr<FileChunkData_t>, struct pFileChunkDataLess> TFilesNeedRecoverChunks;
     typedef struct FilesNeedRecoverChunksData_t{
         std::shared_mutex RawFileMtx;
-        CRawFile RawFile;
+        FRawFile RawFile;
         uint64_t FileSize;
         TFilesNeedRecoverChunks Chunks;
     }FilesNeedRecoverChunksData_t;
@@ -84,37 +86,37 @@ typedef struct FolderRecoverWorkData_t {
 
 class FFolderRecoverHelper :public IFolderRecoverHelperInterface {
 public:
-    CommonHandle_t AddTask(std::shared_ptr < const  FolderManifest_t> manifest, std::shared_ptr < const  FolderManifest_t> sourceManifest, TConstructStatusChangedDelegate Delegate) override;
-    FolderRecoverProgress_t& GetFolderRecoverProcess(CommonHandle_t handle)override {
+    CommonHandle32_t AddTask(std::shared_ptr < const  FolderManifest_t> manifest, std::shared_ptr < const  FolderManifest_t> sourceManifest, TConstructStatusChangedDelegate Delegate) override;
+    FolderRecoverProgress_t& GetFolderRecoverProcess(CommonHandle32_t handle)override {
         return OutProcess;
     }
 
-    std::optional<const ReserveFileSpaceData_t> GetReserveNextFileSpaceData(CommonHandle_t)override;
-    void ReserveFileSpaceComplete(CommonHandle_t, ReserveFileSpaceData_t)override;
-    bool ImplementReserveFileSpace(CommonHandle_t recoverHandle,ReserveFileSpaceData_t& ConstructChunkData, std::u8string_view tempPathStr)override;
+    std::optional<const ReserveFileSpaceData_t> GetReserveNextFileSpaceData(CommonHandle32_t)override;
+    void ReserveFileSpaceComplete(CommonHandle32_t, ReserveFileSpaceData_t)override;
+    bool ImplementReserveFileSpace(CommonHandle32_t recoverHandle,ReserveFileSpaceData_t& ConstructChunkData, std::u8string_view tempPathStr)override;
 
-    std::shared_ptr<const ConstructChunkData_t> GetConstructNextChunkData(CommonHandle_t) override;
-    void ChunkConstructComplete(CommonHandle_t, std::shared_ptr<const ConstructChunkData_t>) override;
-    bool ImplementForLocalChunkConstruct(CommonHandle_t recoverHandle,std::shared_ptr<const ConstructChunkData_t> ConstructChunkData, std::u8string_view workPathStr, std::u8string_view chunkFolderPathStr) override;
+    std::shared_ptr<const ConstructChunkData_t> GetConstructNextChunkData(CommonHandle32_t) override;
+    void ChunkConstructComplete(CommonHandle32_t, std::shared_ptr<const ConstructChunkData_t>) override;
+    bool ImplementForLocalChunkConstruct(CommonHandle32_t recoverHandle,std::shared_ptr<const ConstructChunkData_t> ConstructChunkData, std::u8string_view workPathStr, std::u8string_view chunkFolderPathStr) override;
 
-    std::optional<std::u8string_view> GetNextFileNeedMove(CommonHandle_t) override;
-    void FileMoveComplete(CommonHandle_t, std::u8string_view) override;
-    bool ImplementFileMove(CommonHandle_t, std::u8string_view, std::u8string_view workPathStr) override;
+    std::optional<std::u8string_view> GetNextFileNeedMove(CommonHandle32_t) override;
+    void FileMoveComplete(CommonHandle32_t, std::u8string_view) override;
+    bool ImplementFileMove(CommonHandle32_t, std::u8string_view, std::u8string_view workPathStr) override;
 
     void Tick(float delta) override;
 
     FolderRecoverProgress_t OutProcess;
-    std::unordered_map<CommonHandle_t, std::shared_ptr<FolderRecoverWorkData_t>>FolderRecoverWorkDataList;
+    std::unordered_map<CommonHandle32_t, std::shared_ptr<FolderRecoverWorkData_t>>FolderRecoverWorkDataList;
 };
 
 
-CommonHandle_t FFolderRecoverHelper::AddTask(std::shared_ptr < const FolderManifest_t> manifest, std::shared_ptr < const  FolderManifest_t> sourceManifest, TConstructStatusChangedDelegate Delegate)
+CommonHandle32_t FFolderRecoverHelper::AddTask(std::shared_ptr < const FolderManifest_t> manifest, std::shared_ptr < const  FolderManifest_t> sourceManifest, TConstructStatusChangedDelegate Delegate)
 {
     auto pFolderRecoverWorkData = std::make_shared<FolderRecoverWorkData_t>();
     auto& FolderRecoverWorkData = *pFolderRecoverWorkData;
     FolderRecoverWorkData.Manifest = manifest;
     FolderRecoverWorkData.SourceManifest = sourceManifest;
-    auto res=FolderRecoverWorkDataList.try_emplace(CommonHandle_t::atomic_count, pFolderRecoverWorkData);
+    auto res=FolderRecoverWorkDataList.try_emplace(CommonHandle32_t::atomic_count, pFolderRecoverWorkData);
     if (!res.second) {
         return NullHandle;
     }
@@ -124,7 +126,7 @@ CommonHandle_t FFolderRecoverHelper::AddTask(std::shared_ptr < const FolderManif
     for (auto& [fileName, fileChunkData] : sourceManifest->Files) {
         for (auto& pChunkData : fileChunkData->Chunks) {
             auto& chunkData = *pChunkData;
-            FolderRecoverWorkData.SourceChunks.try_emplace(ConvertStringTotU8View(chunkData.HexName), fileName, chunkData.StartPos);
+            FolderRecoverWorkData.SourceChunks.try_emplace(ConvertViewToU8View(chunkData.HexName), fileName, chunkData.StartPos);
         }
         auto itr = manifest->Files.find(fileName);
         if (itr == manifest->Files.end()) {
@@ -153,7 +155,7 @@ CommonHandle_t FFolderRecoverHelper::AddTask(std::shared_ptr < const FolderManif
     return res.first->first;
 }
 
-std::optional<const ReserveFileSpaceData_t> FFolderRecoverHelper::GetReserveNextFileSpaceData(CommonHandle_t handle)
+std::optional<const ReserveFileSpaceData_t> FFolderRecoverHelper::GetReserveNextFileSpaceData(CommonHandle32_t handle)
 {
     auto itr=FolderRecoverWorkDataList.find(handle);
     if (itr == FolderRecoverWorkDataList.end()) {
@@ -177,7 +179,7 @@ std::optional<const ReserveFileSpaceData_t> FFolderRecoverHelper::GetReserveNext
     return ReserveFileSpaceData_t{ FileName, chunksData.FileSize};
 }
 
-void FFolderRecoverHelper::ReserveFileSpaceComplete(CommonHandle_t handle, ReserveFileSpaceData_t data)
+void FFolderRecoverHelper::ReserveFileSpaceComplete(CommonHandle32_t handle, ReserveFileSpaceData_t data)
 {
     auto itr = FolderRecoverWorkDataList.find(handle);
     if (itr == FolderRecoverWorkDataList.end()) {
@@ -188,7 +190,7 @@ void FFolderRecoverHelper::ReserveFileSpaceComplete(CommonHandle_t handle, Reser
     OutProcess.FileCount = FolderRecoverWorkData.FileCount;
 }
 
-bool FFolderRecoverHelper::ImplementReserveFileSpace(CommonHandle_t recoverHandle, ReserveFileSpaceData_t& ConstructChunkData, std::u8string_view tempPathStr)
+bool FFolderRecoverHelper::ImplementReserveFileSpace(CommonHandle32_t recoverHandle, ReserveFileSpaceData_t& ConstructChunkData, std::u8string_view tempPathStr)
 {
     auto itr = FolderRecoverWorkDataList.find(recoverHandle);
     if (itr == FolderRecoverWorkDataList.end()) {
@@ -203,13 +205,13 @@ bool FFolderRecoverHelper::ImplementReserveFileSpace(CommonHandle_t recoverHandl
     std::filesystem::path tempFilePath(tempPathStr);
     tempFilePath /= ConstructChunkData.FileName;
     FolderRecoverWorkData.TempFolder.assign((const char*)tempPathStr.data(), (const char*)tempPathStr.data()+tempPathStr.size());
-    if (FolderRecoverWorkData.FilesNeedRecover[ConstructChunkData.FileName]->RawFile.Open(tempFilePath.u8string().c_str(), UTIL_CREATE_ALWAYS, ConstructChunkData.FileSize)) {
+    if (FolderRecoverWorkData.FilesNeedRecover[ConstructChunkData.FileName]->RawFile.Open(tempFilePath.u8string().c_str(), UTIL_CREATE_ALWAYS, ConstructChunkData.FileSize) != ERR_SUCCESS) {
         return false;
     }
     return true;
 }
 
-std::shared_ptr<const ConstructChunkData_t> FFolderRecoverHelper::GetConstructNextChunkData(CommonHandle_t handle)
+std::shared_ptr<const ConstructChunkData_t> FFolderRecoverHelper::GetConstructNextChunkData(CommonHandle32_t handle)
 {
     auto itr = FolderRecoverWorkDataList.find(handle);
     if (itr == FolderRecoverWorkDataList.end()) {
@@ -277,7 +279,7 @@ std::shared_ptr<const ConstructChunkData_t> FFolderRecoverHelper::GetConstructNe
     return pConstructTask;
 }
 
-void FFolderRecoverHelper::ChunkConstructComplete(CommonHandle_t handle, std::shared_ptr<const ConstructChunkData_t> pConstructChunkData)
+void FFolderRecoverHelper::ChunkConstructComplete(CommonHandle32_t handle, std::shared_ptr<const ConstructChunkData_t> pConstructChunkData)
 {
     auto& ConstructChunkData = *pConstructChunkData;
     auto itr = FolderRecoverWorkDataList.find(handle);
@@ -293,7 +295,7 @@ void FFolderRecoverHelper::ChunkConstructComplete(CommonHandle_t handle, std::sh
     OutProcess.FileChunkCount = FolderRecoverWorkData.FileChunkCount;
 }
 
-bool FFolderRecoverHelper::ImplementForLocalChunkConstruct(CommonHandle_t recoverHandle, std::shared_ptr<const ConstructChunkData_t> pConstructChunkData, std::u8string_view workPathStr, std::u8string_view chunkFolderPathStr)
+bool FFolderRecoverHelper::ImplementForLocalChunkConstruct(CommonHandle32_t recoverHandle, std::shared_ptr<const ConstructChunkData_t> pConstructChunkData, std::u8string_view workPathStr, std::u8string_view chunkFolderPathStr)
 {
     auto& ConstructChunkData = *std::const_pointer_cast<ConstructChunkData_t>( pConstructChunkData);
     auto pChunkFromFileSource = std::get_if<ChunkFromFileSource_t>(&ConstructChunkData.ChunkSourceData);
@@ -342,7 +344,7 @@ bool FFolderRecoverHelper::ImplementForLocalChunkConstruct(CommonHandle_t recove
     return true;
 }
 
-std::optional<std::u8string_view> FFolderRecoverHelper::GetNextFileNeedMove(CommonHandle_t handle)
+std::optional<std::u8string_view> FFolderRecoverHelper::GetNextFileNeedMove(CommonHandle32_t handle)
 {
     auto itr = FolderRecoverWorkDataList.find(handle);
     if (itr == FolderRecoverWorkDataList.end()) {
@@ -365,7 +367,7 @@ std::optional<std::u8string_view> FFolderRecoverHelper::GetNextFileNeedMove(Comm
     return FileName;
 }
 
-void FFolderRecoverHelper::FileMoveComplete(CommonHandle_t handle, std::u8string_view)
+void FFolderRecoverHelper::FileMoveComplete(CommonHandle32_t handle, std::u8string_view)
 {
     auto itr = FolderRecoverWorkDataList.find(handle);
     if (itr == FolderRecoverWorkDataList.end()) {
@@ -375,7 +377,7 @@ void FFolderRecoverHelper::FileMoveComplete(CommonHandle_t handle, std::u8string
     FolderRecoverWorkData.FileCount++;
 }
 
-bool FFolderRecoverHelper::ImplementFileMove(CommonHandle_t recoverHandle, std::u8string_view FileRelativePathStr, std::u8string_view workPathStr)
+bool FFolderRecoverHelper::ImplementFileMove(CommonHandle32_t recoverHandle, std::u8string_view FileRelativePathStr, std::u8string_view workPathStr)
 {
     auto itr = FolderRecoverWorkDataList.find(recoverHandle);
     if (itr == FolderRecoverWorkDataList.end()) {
@@ -389,7 +391,7 @@ bool FFolderRecoverHelper::ImplementFileMove(CommonHandle_t recoverHandle, std::
     std::error_code ec;
     std::filesystem::path targetFilePath(workPathStr);
     targetFilePath /= FileRelativePathStr;
-    std::filesystem::path tempFilePath(FolderRecoverWorkData.FilesNeedRecover[FileRelativePathStr]->RawFile.GetFileName());
+    std::filesystem::path tempFilePath(FolderRecoverWorkData.FilesNeedRecover[FileRelativePathStr]->RawFile.GetFilePath());
     std::filesystem::create_directories(targetFilePath.parent_path(), ec);
     if (ec) {
         return false;

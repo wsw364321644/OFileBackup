@@ -26,10 +26,10 @@ class  IFileBackupManagerInterface {
 public:
 
     typedef std::function<void(std::shared_ptr<const FolderManifest_t>)> TGenFolderMetaDataFinishDelegate;
-    virtual CommonHandle_t GenFolderChunkData(const char8_t* path, TGenFolderMetaDataFinishDelegate Delegate) = 0;
+    virtual CommonHandle32_t GenFolderChunkData(const char8_t* path, TGenFolderMetaDataFinishDelegate Delegate) = 0;
 
     typedef std::function<bool(char8_t*,uint32_t&)> TGetNextHashPairCB;
-    virtual bool GenFolderChunkDataAddHash(CommonHandle_t handle, TGetNextHashPairCB) = 0;
+    virtual bool GenFolderChunkDataAddHash(CommonHandle32_t handle, TGetNextHashPairCB) = 0;
 
     typedef std::function<void()> TOneFileChunkDataTask;
     typedef std::function<void(float)> TOneFileChunkDataReadFileTick;
@@ -39,13 +39,13 @@ public:
     * TOneFileChunkDataTask can parallel execute 
     * TOneFileChunkDataPostProcessingTask is not  multi-thread safe
     ***/
-    virtual std::tuple<TOneFileChunkDataTask, TOneFileChunkDataReadFileTick, TOneFileChunkDataPostProcessingTask> GenFolderChunkDataGetNextFileTask(CommonHandle_t handle, TNewFileChunkDelegate) = 0;
+    virtual std::tuple<TOneFileChunkDataTask, TOneFileChunkDataReadFileTick, TOneFileChunkDataPostProcessingTask> GenFolderChunkDataGetNextFileTask(CommonHandle32_t handle, TNewFileChunkDelegate) = 0;
 
-    virtual std::shared_ptr<const GenFolderMetaDataProcess_t> GenFolderChunkDataGetProcess(CommonHandle_t handle) = 0;
+    virtual std::shared_ptr<const GenFolderMetaDataProcess_t> GenFolderChunkDataGetProcess(CommonHandle32_t handle) = 0;
 
     //todo 
     // FileChunksData_t is writting in other thread
-    //virtual std::shared_ptr<const FolderManifest_t> GetFolderChunkData(CommonHandle_t handle) = 0;
+    //virtual std::shared_ptr<const FolderManifest_t> GetFolderChunkData(CommonHandle32_t handle) = 0;
 
     virtual void Tick(float delta)=0;
 };

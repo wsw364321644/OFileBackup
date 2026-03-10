@@ -1,10 +1,12 @@
 #include "ofilebackup_actions.h"
+
 #include <FileBackupManager.h>
 #include <FolderRecoverHelper.h>
 #include <Task/TaskManager.h>
 #include <Task/TaskCounter.h>
 #include <FunctionExitHelper.h>
 #include <dir_util.h>
+#include <char_buffer_extension.h>
 
 #include <filesystem>
 #include <numeric>
@@ -50,7 +52,7 @@ std::tuple< bool, std::shared_ptr<const FolderManifest_t>> gen_folder_manifest_b
         std::filesystem::create_directories(chunkOutPath);
     }
 
-    uint8_t ParallelTaskNum = std::max(1,int(std::thread::hardware_concurrency())-1);
+    uint8_t ParallelTaskNum = std::max(1, int(std::thread::hardware_concurrency()) - 1);
     FTaskSlotCounter<void> TaskCounter(ParallelTaskNum);
     typedef struct TaskData_t {
         WorkflowHandle_t WorkflowHandle{ NullHandle };
@@ -60,16 +62,16 @@ std::tuple< bool, std::shared_ptr<const FolderManifest_t>> gen_folder_manifest_b
     std::vector<TaskData_t> taskDataList(ParallelTaskNum);
     for (auto& taskData : taskDataList)
     {
-        taskData.WorkflowHandle = GetTaskManagerInstance()->NewWorkflow();
+        taskData.WorkflowHandle = GetTaskManagerSingleton()->NewWorkflow();
     }
 
-    auto tickHandle = GetTaskManagerInstance()->AddTick(GetTaskManagerInstance()->GetMainThread(),
+    auto tickHandle = GetTaskManagerSingleton()->AddTick(GetTaskManagerSingleton()->GetMainThread(),
         [&](float delta) {
             FileBackupManager->Tick(delta);
             auto& finishedSlots = TaskCounter.CheckFinished();
             for (auto& slot : finishedSlots) {
                 taskDataList[slot.ID].PostTask();
-                GetTaskManagerInstance()->RemoveTask(taskDataList[slot.ID].ReadTickHandle);
+                GetTaskManagerSingleton()->RemoveTask(taskDataList[slot.ID].ReadTickHandle);
             }
 
             auto IDopt = TaskCounter.GetFreeSlot();
@@ -95,13 +97,13 @@ std::tuple< bool, std::shared_ptr<const FolderManifest_t>> gen_folder_manifest_b
                     }
                 );
                 if (task) {
-                    auto [newhandle, newf] = GetTaskManagerInstance()->AddTask(taskDataList[i].WorkflowHandle, task);
+                    auto [newhandle, newf] = GetTaskManagerSingleton()->AddTask(taskDataList[i].WorkflowHandle, task);
                     taskDataList[i].PostTask = postTask;
                     TaskCounter.SetFuture(i, newhandle, newf);
-                    taskDataList[i].ReadTickHandle = GetTaskManagerInstance()->AddTick(GetTaskManagerInstance()->GetMainThread(), readFileTick);
+                    taskDataList[i].ReadTickHandle = GetTaskManagerSingleton()->AddTick(GetTaskManagerSingleton()->GetMainThread(), readFileTick);
                 }
                 if (fExit) {
-                    GetTaskManagerInstance()->Stop();
+                    GetTaskManagerSingleton()->Stop();
                 }
             }
         }
@@ -109,11 +111,11 @@ std::tuple< bool, std::shared_ptr<const FolderManifest_t>> gen_folder_manifest_b
     FunctionExitHelper_t ExitHelper([&]() {
         for (auto& taskData : taskDataList)
         {
-            GetTaskManagerInstance()->ReleaseWorkflow(taskData.WorkflowHandle);
+            GetTaskManagerSingleton()->ReleaseWorkflow(taskData.WorkflowHandle);
         }
-        GetTaskManagerInstance()->RemoveTask(tickHandle);
+        GetTaskManagerSingleton()->RemoveTask(tickHandle);
         });
-    GetTaskManagerInstance()->Run();
+    GetTaskManagerSingleton()->Run();
     return { true, out };
 }
 bool gen_folder_manifest_action(std::u8string_view workPathStr, std::u8string_view chunkListPathStr, std::u8string_view chunkOutPathStr, std::u8string_view manifestFilePathStr) {
@@ -132,11 +134,12 @@ bool gen_folder_manifest_action(std::u8string_view workPathStr, std::u8string_vi
         }
     }
     DirUtil::IterateDir(chunkOutPathStr,
-        [&](DirEntry_t& entry) {
+        [&](DirEntry_t& entry)->bool {
             if (entry.bDir) {
-                return;
+                return true;
             }
             hexNameList.push_back((const char*)entry.Name);
+            return true;
         },
         0);
     auto [res, pFolderManifest] = gen_folder_manifest_by_chunklist(workPathStr, hexNameList, chunkOutPathStr,
@@ -147,8 +150,13 @@ bool gen_folder_manifest_action(std::u8string_view workPathStr, std::u8string_vi
     if (!res) {
         return false;
     }
+    auto& charBuf = *FCharBuffer::GetThreadSingleton();
+    pFolderManifest->to_string(charBuf, ec);
+    if (ec) {
+        return false;
+    }
     if (manifestFilePathStr.empty()) {
-        std::cout << "\r" << *pFolderManifest->to_string() << std::endl;
+        std::cout << "\r" << charBuf.View() << std::endl;
     }
     else {
         std::filesystem::path manifestFilePath(manifestFilePathStr);
@@ -160,7 +168,7 @@ bool gen_folder_manifest_action(std::u8string_view workPathStr, std::u8string_vi
         if (!ofs.is_open()) {
             return false;
         }
-        ofs << *pFolderManifest->to_string();
+        ofs << charBuf.View();
         ofs.close();
     }
     return true;
@@ -168,42 +176,32 @@ bool gen_folder_manifest_action(std::u8string_view workPathStr, std::u8string_vi
 
 
 bool compare_folder_manifest(std::u8string_view sourcePathStr, std::u8string_view targetPathStr, std::u8string_view outFilePathStr) {
-
-    std::filesystem::path sourcePath(sourcePathStr);
-    std::filesystem::path targetPath(targetPathStr);
-    std::filesystem::path outFilePath(outFilePathStr);
     std::error_code ec;
-    if (!std::filesystem::exists(sourcePath) || !std::filesystem::exists(targetPath)) {
+    FRawFile sourceFile;
+    FRawFile targetFile;
+    FRawFile outFile;
+    if (sourceFile.Open(sourcePathStr, UTIL_OPEN_EXISTING) != ERR_SUCCESS) {
         return false;
     }
-    std::fstream sourceFile(sourcePath, std::ios::binary);
-    if (sourceFile.is_open()) {
+
+    if (targetFile.Open(targetPathStr, UTIL_OPEN_EXISTING) != ERR_SUCCESS) {
         return false;
     }
-    auto size = std::filesystem::file_size(sourcePath, ec);
+    auto& charBuf=*FCharBuffer::GetThreadSingleton();
+    if (!LoadFileToCharBuffer(sourceFile, charBuf, FolderManifest_t::get_string_extra_space())) {
+        return false;
+    }
+    auto pSourceFolderManifest = FolderManifest_t::from_string(charBuf, ec);
     if (ec) {
         return false;
     }
-    std::vector<char> sourceContent(size);
-    if (!sourceFile.read(sourceContent.data(), size)) {
+    if (!LoadFileToCharBuffer(targetFile, charBuf, FolderManifest_t::get_string_extra_space())) {
         return false;
     }
-    auto pSourceFolderManifest = FolderManifest_t::from_string(sourceContent.data(), size);
-
-    std::fstream targetFile(targetPath, std::ios::binary);
-    if (targetFile.is_open()) {
-        return false;
-    }
-    size = std::filesystem::file_size(targetPath, ec);
+    auto pTargetFolderManifest = FolderManifest_t::from_string(charBuf, ec);
     if (ec) {
         return false;
     }
-    std::vector<char> targetContent(size);
-    if (!targetFile.read(targetContent.data(), size)) {
-        return false;
-    }
-    auto pTargetFolderManifest = FolderManifest_t::from_string(targetContent.data(), size);
-
     auto diffRes = CompareFolderManifest(*pSourceFolderManifest, *pTargetFolderManifest);
     if (outFilePathStr.empty()) {
         for (auto& sourcePathStr : diffRes->MissingFileChunks) {
@@ -211,10 +209,11 @@ bool compare_folder_manifest(std::u8string_view sourcePathStr, std::u8string_vie
         }
     }
     else {
-        std::filesystem::create_directories(outFilePath.parent_path());
-        std::fstream outstream(outFilePath);
+        if (outFile.Open(outFilePathStr, UTIL_CREATE_ALWAYS) != ERR_SUCCESS) {
+            return false;
+        }
         for (auto& sourcePathStr : diffRes->MissingFileChunks) {
-            outstream << sourcePathStr << std::endl;
+            outFile.Write(sourcePathStr.data(), sourcePathStr.size());
         }
     }
     return true;
@@ -223,89 +222,80 @@ bool compare_folder_manifest(std::u8string_view sourcePathStr, std::u8string_vie
 EFileBackupError recover_folder(std::u8string_view workPathStr, std::u8string_view manifestFilePathStr, std::u8string_view sourceManifestFilePathStr, std::u8string_view chunkPathStr, std::u8string_view tempPathStr)
 {
     auto& FolderRecoverHelper = *GetFolderRecoverHelperInstance();
-    bool hasTempFolder{ false };
-    std::filesystem::path workPath(workPathStr);
-    std::filesystem::path manifestFilePath(manifestFilePathStr);
-    std::filesystem::path sourceManifestFilePath(sourceManifestFilePathStr);
-    std::filesystem::path chunkPath(chunkPathStr);
-    std::filesystem::path tempPath(tempPathStr);
-    std::u8string tempPathStr8;
-    std::vector<char> manifestContent;
-    std::vector<char> sourceManifestContent;
+    bool bCreateTempFolder{ false };
     std::error_code ec;
+    FRawFile Manifest;
+    FRawFile SourceManifest;
     std::shared_ptr<const FolderManifest_t> pManifest;
     std::shared_ptr<const FolderManifest_t> pSourceManifest;
-    if (!std::filesystem::exists(workPath, ec) || ec) {
-        if (!std::filesystem::create_directories(workPath, ec) || ec) {
+    std::u8string tempPathStr8;
+    FCharBuffer&charBuf=*FCharBuffer::GetThreadSingleton();
+    FPathBuf &pathBuf=*FPathBuf::GetThreadSingleton();
+    pathBuf.SetPath(ConvertU8ViewToView(workPathStr));
+    if (!DirUtil::IsExist(pathBuf)) {
+        if (!DirUtil::CreateDir(pathBuf)) {
             return EFileBackupError::FBE_FILE_NOT_EXIST;
         }
     }
-    else if (!std::filesystem::is_directory(workPath, ec) || ec) {
-        return EFileBackupError::FBE_FILE_NOT_EXIST;
-    }
-    if (!std::filesystem::exists(manifestFilePath, ec) || ec
-        || std::filesystem::is_directory(manifestFilePath, ec) || ec
-        ) {
-        return EFileBackupError::FBE_FILE_NOT_EXIST;
-    }
-    if (!sourceManifestFilePathStr.empty()
-        && (!std::filesystem::exists(sourceManifestFilePath, ec) || ec
-        || std::filesystem::is_directory(sourceManifestFilePath, ec) || ec)) {
-        return EFileBackupError::FBE_FILE_NOT_EXIST;
-    }
-    std::ifstream manifestFile(manifestFilePath, std::ios::binary);
-    if (!manifestFile.is_open()) {
-        return EFileBackupError::FBE_FILE_OP_ERROR;
-    }
-    auto size = std::filesystem::file_size(manifestFilePath, ec);
-    if (ec) {
-        return EFileBackupError::FBE_FILE_OP_ERROR;
-    }
-    manifestContent.reserve(size);
-    if (!manifestFile.read(manifestContent.data(), size)) {
-        return EFileBackupError::FBE_FILE_OP_ERROR;
-    }
-    pManifest = FolderManifest_t::from_string(manifestContent.data(), size);
-
-    if (sourceManifestFilePathStr.empty()) {
-        pSourceManifest = std::make_shared<FolderManifest_t>();
-    }
     else {
-        std::ifstream sourceManifestFile(sourceManifestFilePath, std::ios::binary);
-        if (!sourceManifestFile.is_open()) {
-            return EFileBackupError::FBE_FILE_OP_ERROR;
+        if (!DirUtil::IsDirectory(pathBuf)) {
+            return EFileBackupError::FBE_FILE_NOT_EXIST;
         }
-        size = std::filesystem::file_size(sourceManifestFilePath, ec);
-        if (ec) {
-            return EFileBackupError::FBE_FILE_OP_ERROR;
-        }
-        sourceManifestContent.reserve(size);
-        if (!sourceManifestFile.read(sourceManifestContent.data(), size)) {
-            return EFileBackupError::FBE_FILE_OP_ERROR;
-        }
-        pSourceManifest = FolderManifest_t::from_string(sourceManifestContent.data(), size);
     }
 
     if (tempPathStr.empty()) {
-        tempPath = workPath.parent_path() / (workPath.filename().string() + "_temp");
+        std::filesystem::path tempPath{ workPathStr };
+        tempPath = tempPath.parent_path() / (tempPath.filename().string() + "_temp");
         tempPathStr8 = tempPath.u8string();
         tempPathStr = tempPathStr8;
     }
-    if (!std::filesystem::exists(tempPath, ec) || ec) {
-        std::filesystem::create_directories(tempPath, ec);
-        if (ec) {
+
+    pathBuf.SetPath(ConvertU8ViewToView(manifestFilePathStr));
+    if (!DirUtil::IsExist(pathBuf) || DirUtil::IsDirectory(pathBuf)) {
+        return EFileBackupError::FBE_FILE_NOT_EXIST;
+    }
+    if (Manifest.Open(pathBuf, UTIL_OPEN_EXISTING) != ERR_SUCCESS) {
+        return EFileBackupError::FBE_FILE_OP_ERROR;
+    }
+    if (!LoadFileToCharBuffer(Manifest, charBuf)) {
+        return EFileBackupError::FBE_FILE_OP_ERROR;
+    }
+    pManifest = FolderManifest_t::from_string(charBuf,ec);
+    if (ec) {
+        return EFileBackupError::FBE_PARAMS_ERROR;
+    }
+
+    if (!sourceManifestFilePathStr.empty()) {
+        pathBuf.SetPath(ConvertU8ViewToView(sourceManifestFilePathStr));
+        if (!DirUtil::IsExist(pathBuf) || DirUtil::IsDirectory(pathBuf)) {
+            return EFileBackupError::FBE_FILE_NOT_EXIST;
+        }
+        if (SourceManifest.Open(pathBuf, UTIL_OPEN_EXISTING) != ERR_SUCCESS) {
             return EFileBackupError::FBE_FILE_OP_ERROR;
+        }
+        if (!LoadFileToCharBuffer(SourceManifest, charBuf)) {
+            return EFileBackupError::FBE_FILE_OP_ERROR;
+        }
+        pSourceManifest = FolderManifest_t::from_string(charBuf, ec);
+        if (ec) {
+            return EFileBackupError::FBE_PARAMS_ERROR;
         }
     }
     else {
-        auto bDir = std::filesystem::is_directory(tempPath, ec);
-        if (ec) {
+        pSourceManifest = std::make_shared<FolderManifest_t>();
+    }
+
+    pathBuf.SetPath(ConvertU8ViewToView(tempPathStr));
+    if (!DirUtil::IsExist(pathBuf)) {
+        if (!DirUtil::CreateDir(pathBuf)) {
             return EFileBackupError::FBE_FILE_OP_ERROR;
         }
-        if (!bDir) {
+        bCreateTempFolder = true;
+    }
+    else {
+        if (!DirUtil::IsDirectory(pathBuf)) {
             return EFileBackupError::FBE_FILE_ALREADY_EXIST;
         }
-        hasTempFolder = true;
     }
 
     std::atomic<EFolderRecoverStatus> RecoverStatus;
@@ -326,10 +316,10 @@ EFileBackupError recover_folder(std::u8string_view workPathStr, std::u8string_vi
     std::vector<TaskData_t> taskDataList(ParallelTaskNum);
     for (auto& taskData : taskDataList)
     {
-        taskData.WorkflowHandle = GetTaskManagerInstance()->NewWorkflow();
+        taskData.WorkflowHandle = GetTaskManagerSingleton()->NewWorkflow();
     }
     CommonTaskHandle_t tickHandle;
-    tickHandle = GetTaskManagerInstance()->AddTick(GetTaskManagerInstance()->GetMainThread(),
+    tickHandle = GetTaskManagerSingleton()->AddTick(GetTaskManagerSingleton()->GetMainThread(),
         [&](float delta) {
             FolderRecoverHelper.Tick(delta);
             TaskCounter.CheckFinished();
@@ -344,9 +334,9 @@ EFileBackupError recover_folder(std::u8string_view workPathStr, std::u8string_vi
                 if (!ReserveFileSpaceDataOpt.has_value()) {
                     break;
                 }
-                std::cout<<  "\r" << FolderRecoverHelper.GetFolderRecoverProcess(recoverHandle).FileCount << "/" << FolderRecoverHelper.GetFolderRecoverProcess(recoverHandle).AllFileNum << std::flush;
-                auto [newhandle, newf] = GetTaskManagerInstance()->AddTask(taskDataList[i].WorkflowHandle, [&, i]() {
-                    if (!FolderRecoverHelper.ImplementReserveFileSpace(recoverHandle,taskDataList[i].ReserveFileSpaceTask, tempPathStr)) {
+                std::cout << "\r" << FolderRecoverHelper.GetFolderRecoverProcess(recoverHandle).FileCount << "/" << FolderRecoverHelper.GetFolderRecoverProcess(recoverHandle).AllFileNum << std::flush;
+                auto [newhandle, newf] = GetTaskManagerSingleton()->AddTask(taskDataList[i].WorkflowHandle, [&, i]() {
+                    if (!FolderRecoverHelper.ImplementReserveFileSpace(recoverHandle, taskDataList[i].ReserveFileSpaceTask, tempPathStr)) {
                         RecoverStatus = EFolderRecoverStatus::FRS_Finished;
                         res = false;
                     }
@@ -367,8 +357,8 @@ EFileBackupError recover_folder(std::u8string_view workPathStr, std::u8string_vi
                     break;
                 }
                 std::cout << "\r" << FolderRecoverHelper.GetFolderRecoverProcess(recoverHandle).FileChunkCount << "/" << FolderRecoverHelper.GetFolderRecoverProcess(recoverHandle).AllFileChunkNum << std::flush;
-                auto [newhandle, newf] = GetTaskManagerInstance()->AddTask(taskDataList[i].WorkflowHandle, [&, pChunkData]() {
-                    if (!FolderRecoverHelper.ImplementForLocalChunkConstruct(recoverHandle,pChunkData, workPathStr, chunkPathStr)) {
+                auto [newhandle, newf] = GetTaskManagerSingleton()->AddTask(taskDataList[i].WorkflowHandle, [&, pChunkData]() {
+                    if (!FolderRecoverHelper.ImplementForLocalChunkConstruct(recoverHandle, pChunkData, workPathStr, chunkPathStr)) {
                         RecoverStatus = EFolderRecoverStatus::FRS_Finished;
                         res = false;
                     }
@@ -387,8 +377,8 @@ EFileBackupError recover_folder(std::u8string_view workPathStr, std::u8string_vi
                 if (!opt.has_value()) {
                     break;
                 }
-                auto [newhandle, newf] = GetTaskManagerInstance()->AddTask(taskDataList[i].WorkflowHandle, [&, filename = opt.value()]() {
-                    if (!FolderRecoverHelper.ImplementFileMove(recoverHandle,filename, workPathStr)) {
+                auto [newhandle, newf] = GetTaskManagerSingleton()->AddTask(taskDataList[i].WorkflowHandle, [&, filename = opt.value()]() {
+                    if (!FolderRecoverHelper.ImplementFileMove(recoverHandle, filename, workPathStr)) {
                         RecoverStatus = EFolderRecoverStatus::FRS_Finished;
                         res = false;
                     }
@@ -398,8 +388,8 @@ EFileBackupError recover_folder(std::u8string_view workPathStr, std::u8string_vi
                 break;
             }
             case EFolderRecoverStatus::FRS_Finished: {
-                GetTaskManagerInstance()->RemoveTask(tickHandle);
-                GetTaskManagerInstance()->Stop();
+                GetTaskManagerSingleton()->RemoveTask(tickHandle);
+                GetTaskManagerSingleton()->Stop();
                 break;
             }
             }
@@ -410,19 +400,16 @@ EFileBackupError recover_folder(std::u8string_view workPathStr, std::u8string_vi
         [&]() {
             for (auto& taskData : taskDataList)
             {
-                GetTaskManagerInstance()->ReleaseWorkflow(taskData.WorkflowHandle);
+                GetTaskManagerSingleton()->ReleaseWorkflow(taskData.WorkflowHandle);
             }
-            GetTaskManagerInstance()->RemoveTask(tickHandle);
-            if (!hasTempFolder) {
-                std::filesystem::remove_all(tempPath, ec);
-                if (ec) {
-                    return;
-                }
+            GetTaskManagerSingleton()->RemoveTask(tickHandle);
+            if (bCreateTempFolder) {
+                DirUtil::Delete( tempPathStr);
             }
         }
     );
 
-    GetTaskManagerInstance()->Run();
+    GetTaskManagerSingleton()->Run();
 
     return EFileBackupError::FBE_OK;
 
