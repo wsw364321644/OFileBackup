@@ -1,10 +1,11 @@
 #include "ofilebackup_actions.h"
+#include <string_convert.h>
 #include <iostream>
 #include <fstream>
 #include <filesystem>
 #include <cxxopts.hpp>
 #include <assert.h>
-int main(int argc,const char* const * argv)
+int main(int argc, const char* const* argv)
 {
     //_set_error_mode(_OUT_TO_MSGBOX);
     //assert(0);
@@ -30,7 +31,7 @@ int main(int argc,const char* const * argv)
         goto options_error;
     }
 
-    if (!gen_folder_manifest_action((const char8_t*)result["path"].as<std::string>().c_str(), 
+    if (!gen_folder_manifest_action((const char8_t*)result["path"].as<std::string>().c_str(),
         (const char8_t*)result["chunk_list_file_path"].as<std::string>().c_str(),
         (const char8_t*)result["chunk_dir"].as<std::string>().c_str(),
         (const char8_t*)result["manifest_output_path"].as<std::string>().c_str())

@@ -63,14 +63,14 @@
 
 rapidjson::Document to_json(const FolderManifest_t& FolderManifest) {
     rapidjson::Document doc{ rapidjson::kObjectType };
-    rapidjson::Value filesNode{ rapidjson::kArrayType };
+    rapidjson::Value filesNode{ rapidjson::kObjectType };
     auto& a = doc.GetAllocator();
     for (auto& [fileName, fileData] : FolderManifest.Files) {
         rapidjson::Value fileNode{ rapidjson::kObjectType };
         rapidjson::Value fileChunksNode{ rapidjson::kArrayType };
-        rapidjson::Value fileChunkNode{ rapidjson::kObjectType };
         fileData->FileHash[StrongHashBit / 4] = 0;
         for (auto& pChunk : fileData->Chunks) {
+            rapidjson::Value fileChunkNode{ rapidjson::kObjectType };
             auto& chunk = *pChunk;
             fileChunkNode.AddMember("HexName", rapidjson::StringRef(chunk.HexName), a);
             fileChunkNode.AddMember("StartPos", chunk.StartPos, a);
@@ -78,10 +78,12 @@ rapidjson::Document to_json(const FolderManifest_t& FolderManifest) {
         }
         fileNode.AddMember("FileHash", rapidjson::StringRef(fileData->FileHash), a);
         fileNode.AddMember("FileSize", fileData->FileSize, a);
-        fileNode.AddMember("Chunks", fileChunksNode, a);
+        if (fileData->Chunks.size() > 0) {
+            fileNode.AddMember("Chunks", fileChunksNode, a);
+        }
         filesNode.AddMember(rapidjson::StringRef(fileData->FileName.c_str()), fileNode, a);
     }
-
+    doc.AddMember("ID", rapidjson::StringRef(FolderManifest.ID, bin_to_hex_length(UUID_128_BYTES)), a);
     doc.AddMember("ChunkFileMaxSize",FolderManifest.ChunkFileMaxSize,a);
     doc.AddMember("HexNameLen", FolderManifest.HexNameLen, a);
     doc.AddMember("Files", filesNode, a);
@@ -112,6 +114,17 @@ std::shared_ptr<const FolderManifest_t> FolderManifest_t::from_string(FCharBuffe
         ec = std::make_error_code(std::errc::invalid_argument);
         return nullptr;
     }
+
+    auto strRes = rootRes["ID"].get_string();
+    if (strRes.error() != simdjson::error_code::SUCCESS) {
+        ec = std::make_error_code(std::errc::invalid_argument);
+        return nullptr;
+    }
+    if (strRes.value_unsafe().size() >= sizeof(manifest.ID)) {
+        ec = std::make_error_code(std::errc::invalid_argument);
+        return nullptr;
+    }
+    memcpy(manifest.ID, strRes.value_unsafe().data(), strRes.value_unsafe().size());
 
     auto u64Res= rootRes["ChunkFileMaxSize"].get_uint64();
     if (u64Res.error() != simdjson::error_code::SUCCESS) {
@@ -150,7 +163,7 @@ std::shared_ptr<const FolderManifest_t> FolderManifest_t::from_string(FCharBuffe
             ec = std::make_error_code(std::errc::invalid_argument);
             return nullptr;
         }
-
+        manifest.OrderedFiles.try_emplace(ConvertViewToU8View(FileChunksData.FileName), pFileChunksData);
         auto fileRes = field.value().get_object();
         if (fileRes.error() != simdjson::error_code::SUCCESS) {
             ec = std::make_error_code(std::errc::invalid_argument);
@@ -173,35 +186,41 @@ std::shared_ptr<const FolderManifest_t> FolderManifest_t::from_string(FCharBuffe
         FileChunksData.FileSize = u64Res.value_unsafe();
 
         auto chunksRes = fileRes["Chunks"].get_array();
-        if (chunksRes.error() != simdjson::error_code::SUCCESS) {
-            ec = std::make_error_code(std::errc::invalid_argument);
-            return nullptr;
-        }
-        for (auto chunkRes: chunksRes) {
-            auto pChunkData = std::make_shared<FileChunkData_t>();
-            FileChunkData_t& chunkData = *pChunkData;
-            if(chunkRes.error() != simdjson::error_code::SUCCESS) {
-                ec = std::make_error_code(std::errc::invalid_argument);
-                return nullptr;
-            }
+        if (chunksRes.error() == simdjson::error_code::SUCCESS) {
+            for (auto chunkRes : chunksRes) {
+                auto pChunkData = std::make_shared<FileChunkData_t>();
+                FileChunkData_t& chunkData = *pChunkData;
+                if (chunkRes.error() != simdjson::error_code::SUCCESS) {
+                    ec = std::make_error_code(std::errc::invalid_argument);
+                    return nullptr;
+                }
 
-            strRes=chunkRes["HexName"].get_string();
-            if (strRes.error() != simdjson::error_code::SUCCESS) {
-                ec = std::make_error_code(std::errc::invalid_argument);
-                return nullptr;
-            }
-            memcpy(chunkData.HexName, strRes.value_unsafe().data(), strRes.value_unsafe().size());
-            chunkData.HexName[strRes.value_unsafe().size()] = '\0';
+                strRes = chunkRes["HexName"].get_string();
+                if (strRes.error() != simdjson::error_code::SUCCESS) {
+                    ec = std::make_error_code(std::errc::invalid_argument);
+                    return nullptr;
+                }
+                memcpy(chunkData.HexName, strRes.value_unsafe().data(), strRes.value_unsafe().size());
+                chunkData.HexName[strRes.value_unsafe().size()] = '\0';
 
-            u64Res = chunkRes["StartPos"].get_uint64();
-            if (u64Res.error() != simdjson::error_code::SUCCESS) {
-                ec = std::make_error_code(std::errc::invalid_argument);
-                return nullptr;
+                u64Res = chunkRes["StartPos"].get_uint64();
+                if (u64Res.error() != simdjson::error_code::SUCCESS) {
+                    ec = std::make_error_code(std::errc::invalid_argument);
+                    return nullptr;
+                }
+                chunkData.StartPos = u64Res.value_unsafe();
+                FileChunksData.Chunks.emplace(pChunkData);
             }
-            chunkData.StartPos = u64Res.value_unsafe();
         }
     }
-
+    int i = 0;
+    for (auto& [_,file] : manifest.OrderedFiles) {
+        file->Index = i++;
+        int j = 0;
+        for (auto& chunk:file->Chunks) {
+            chunk->Index = j++;
+        }
+    }
     return out;
 }
 
@@ -212,7 +231,11 @@ int32_t FolderManifest_t::get_string_extra_space()
 
 std::shared_ptr<const FolderManifestCompareResult_t> CompareFolderManifest(const FolderManifest_t& source, const FolderManifest_t& target)
 {
-    auto out = std::make_shared<FolderManifestCompareResult_t>();
+    static std::shared_ptr<FolderManifestCompareResult_t> out;
+    if (!out) {
+        out = std::make_shared<FolderManifestCompareResult_t>();
+    }
+    out->Clear();
     auto& HexNames = out->MissingFileChunks;
     for (auto& [pathstr, FileChunksData] : target.Files) {
         for (auto& pFileChunk : FileChunksData->Chunks) {

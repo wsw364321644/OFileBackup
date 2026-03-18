@@ -31,8 +31,11 @@ public:
     typedef std::function<bool(char8_t*,uint32_t&)> TGetNextHashPairCB;
     virtual bool GenFolderChunkDataAddHash(CommonHandle32_t handle, TGetNextHashPairCB) = 0;
 
+    //multithreading
     typedef std::function<void()> TOneFileChunkDataTask;
+    //multithreading
     typedef std::function<void(float)> TOneFileChunkDataReadFileTick;
+    //in tick thread
     typedef std::function<void()> TOneFileChunkDataPostProcessingTask;
     typedef std::function<void(IChunkConverter*, const char8_t*, const uint32_t, const char*, const uint32_t)> TNewFileChunkDelegate;
     /***

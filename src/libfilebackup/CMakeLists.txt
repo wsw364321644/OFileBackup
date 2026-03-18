@@ -11,6 +11,7 @@ function(configure_library TARGET_NAME)
     set_target_properties(${TARGET_NAME} PROPERTIES CXX_STANDARD_REQUIRED ON)
     set_target_properties(${TARGET_NAME} PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+    target_link_libraries(${TARGET_NAME} PRIVATE concurrentqueue::concurrentqueue)
     target_link_libraries(${TARGET_NAME} PRIVATE rollinghashcpp::rollinghashcpp)
     target_link_libraries(${TARGET_NAME} PRIVATE xxHash::xxhash)
     target_link_libraries(${TARGET_NAME} PRIVATE MbedTLS::mbedcrypto)
