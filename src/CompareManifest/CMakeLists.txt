@@ -14,7 +14,7 @@ function(configure_library TARGET_NAME)
     target_link_libraries(${TARGET_NAME} PRIVATE OFileBackup::ofilebackup_a)
     AddTargetInclude(${TARGET_NAME})
 
-    if(NOT UTILPP_DISABLE_INSTALL)
+    if(NOT OFB_DISABLE_INSTALL)
         AddTargetInstall(${TARGET_NAME} ${PROJECT_NAME})
     endif()
 endfunction()

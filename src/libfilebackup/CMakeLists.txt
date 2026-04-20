@@ -30,7 +30,7 @@ function(configure_library TARGET_NAME)
 
     add_library(${PROJECT_NAME}::${TARGET_NAME} ALIAS ${TARGET_NAME})
 
-    if(NOT UTILPP_DISABLE_INSTALL)
+    if(NOT OFB_DISABLE_INSTALL)
         AddTargetInstall(${TARGET_NAME} ${PROJECT_NAME})
     endif()
 endfunction()
