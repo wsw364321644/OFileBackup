@@ -3,9 +3,12 @@
 
 #include <string_convert.h>
 #include <FunctionExitHelper.h>
-#include <mbedtls/md5.h>
-#include <rabinkarphash.h>
 #include <std_ext.h>
+
+#include <crypto_lib_md5.h>
+#include <xxhash.h>
+#include <rabinkarphash.h>
+#include <zstd.h>
 
 #ifdef BOOST_FOUND
 #include <boost/unordered/unordered_flat_map.hpp>
@@ -15,13 +18,13 @@
 #include <absl/container/flat_hash_set.h>
 #endif
 
+#include <span>
 #include <fstream>
 #include <filesystem>
 #include <set>
 #include <shared_mutex>
 #include <list>
 #include <array>
-#include <zstd.h>
 #include <mutex>
 #include <algorithm>
 #include <map>
@@ -37,13 +40,13 @@ typedef absl::flat_hash_map<WeakHash_t, HashSetType> HashMapType;
 static KarpRabinHash EmptyHasher(FileChunkSize, CHAR_BIT * sizeof(uint32_t));
 
 typedef struct FileChunkBuf_t {
-    static constexpr uint32_t FileBufSize = FileChunkSize * 8;
-    static constexpr uint32_t ConsumedFileBufSize = FileChunkSize * 3;
+    static constexpr uint32_t FileBufSize = FileChunkSize * 8; // 文件缓冲区总大小
+    static constexpr uint32_t ConsumedFileBufSize = FileChunkSize * 3; // 已消费缓冲区大小
     char OutBuf[ConsumedFileBufSize] = {};
     char Buf[ConsumedFileBufSize + FileBufSize] = {};
     char* const BufEnd = Buf + ConsumedFileBufSize + FileBufSize;
-    char* ConsumePos = Buf;
-    char* StreamPos = Buf;
+    char* ConsumePos = Buf;//读取位置
+    char* StreamPos = Buf;//写入位置
     std::atomic_uint32_t ContentSize{ 0 };
     void Clear() {
         memset(Buf, 0, ConsumedFileBufSize + FileBufSize);
@@ -51,15 +54,16 @@ typedef struct FileChunkBuf_t {
         StreamPos = Buf;
         ContentSize = 0;
     }
-    std::tuple<char*, uint32_t> GetEmptyBuf() {
+
+    std::span<char> GetEmptyBuf() {
         auto FreeSpaceSize = FileBufSize - ContentSize;
         return { StreamPos,StreamPos + FreeSpaceSize > BufEnd ? uint32_t(BufEnd - StreamPos) : FreeSpaceSize };
     }
-    std::tuple<char*, uint32_t> GetContentBuf() {
+    std::span<char> GetContentBuf() {
         auto contentSize = ContentSize.load();
         return { ConsumePos,ConsumePos + contentSize > BufEnd ? uint32_t(BufEnd - ConsumePos) : contentSize };
     }
-    std::tuple < std::tuple<char*, uint32_t>, std::tuple<char*, uint32_t>> GetConsumedBuf(uint32_t reverseStart, uint32_t reverseLen) {
+    std::tuple<std::span<char>, std::span<char>> GetConsumedBuf(uint32_t reverseStart, uint32_t reverseLen) {
         auto PosAfterOffset = ConsumePos - reverseStart;
         if (PosAfterOffset <= Buf) {
             PosAfterOffset = BufEnd - (Buf - PosAfterOffset);
@@ -72,13 +76,13 @@ typedef struct FileChunkBuf_t {
     }
     char* GetContinuousConsumedBuf(uint32_t reverseStart, uint32_t reverseLen) {
         auto [ConsumedBufTupleL, ConsumedBufTupleR] = GetConsumedBuf(reverseStart, reverseLen);
-        auto& [ConsumedBufL, ConsumedBufLLen] = ConsumedBufTupleL;
-        auto& [ConsumedBufR, ConsumedBufRLen] = ConsumedBufTupleR;
-        if (ConsumedBufRLen == 0) {
-            return ConsumedBufL;
+        auto ConsumedBufL = ConsumedBufTupleL;
+        auto ConsumedBufR = ConsumedBufTupleR;
+        if (ConsumedBufR.size() == 0) {
+            return ConsumedBufL.data();
         }
-        memcpy(OutBuf, ConsumedBufL, ConsumedBufLLen);
-        memcpy(OutBuf + ConsumedBufLLen, ConsumedBufR, ConsumedBufRLen);
+        memcpy(OutBuf, ConsumedBufL.data(), ConsumedBufL.size());
+        memcpy(OutBuf + ConsumedBufL.size(), ConsumedBufR.data(), ConsumedBufR.size());
         return OutBuf;
     }
     void FillSize(uint32_t size) {
@@ -100,9 +104,7 @@ typedef struct FileChunkBuf_t {
 
 typedef struct GenFolderChunkDataFileTaskData_t {
     HashMapType FileAllHashMap;
-
-    mbedtls_md5_context FileMD5ctx{};
-    mbedtls_md5_context MD5ctx{};
+    CommonHandlePtr_t MD5Handle;
     FChunkConverter ChunkConverter{};
     std::shared_ptr<FileChunksData_t> FileChunksData;
     IFileBackupManagerInterface::TNewFileChunkDelegate  NewFileChunkDelegate;
@@ -114,10 +116,18 @@ typedef struct GenFolderChunkDataFileTaskData_t {
     std::ifstream FileStream;
     uint32_t WaitAppendDataLen{ 0 };
 
+    ~GenFolderChunkDataFileTaskData_t() {
+        if (MD5Handle) {
+            CryptoLibMD5Release(MD5Handle);
+        }
+    }
     void Clear() {
         bEOF = false;
         WaitAppendDataLen = 0;
         FileChunkBuf->Clear();
+        if (MD5Handle) {
+            CryptoLibMD5Reset(MD5Handle);
+        }
     }
 }GenFolderChunkDataFileTaskData_t;
 
@@ -204,8 +214,7 @@ bool FFileBackupManager::GenFolderChunkDataAddHash(CommonHandle32_t handle, TGet
         if (!hexres) {
             continue;
         }
-        auto [pair, res] = pFolderWorkData->AllHashMap.try_emplace(*(WeakHash_t*)hexBin, HashSetType{ std::string(strongHashBytes, StrongHashBit / 8) });
-
+        auto [pair, res] = pFolderWorkData->AllHashMap.try_emplace(*reinterpret_cast<WeakHash_t*>(hexBin), HashSetType{ std::string(strongHashBytes, StrongHashBit / 8) });
         if (!res) {
             pair->second.insert(strongHashBytes);
         }
@@ -248,6 +257,10 @@ std::tuple<IFileBackupManagerInterface::TOneFileChunkDataTask, IFileBackupManage
             pFileTaskData = std::make_shared<GenFolderChunkDataFileTaskData_t>();
             pFileTaskData->FileChunkBuf = std::make_shared<FileChunkBuf_t>();;
             pFileTaskData->ChunkConverter.UpdateConvertDirection(EConvertDirection::ToChunkFile);
+            pFileTaskData->MD5Handle = CryptoLibMD5Begin();
+            if (!pFileTaskData->MD5Handle.IsValid()) {
+                return { nullptr,nullptr,nullptr };
+            }
         }
         pFileTaskData->FileChunksData = pFileChunksData;
         auto [itr, res] = pFolderWorkData->FileTasks.try_emplace(ConvertViewToU8View(pFileTaskData->FileChunksData->FileName), pFileTaskData);
@@ -255,9 +268,7 @@ std::tuple<IFileBackupManagerInterface::TOneFileChunkDataTask, IFileBackupManage
             return { nullptr,nullptr,nullptr };
         }
         pFileTaskData->NewFileChunkDelegate = NewFileChunkDelegate;
-        mbedtls_md5_init(&pFileTaskData->MD5ctx);
-        mbedtls_md5_init(&pFileTaskData->FileMD5ctx);
-        mbedtls_md5_starts(&pFileTaskData->FileMD5ctx);
+
         pFileTaskData->FileAllHashMap = pFolderWorkData->AllHashMap;
         auto filePath = pFolderWorkData->WorkPath / pFileTaskData->FileChunksData->FileName;
         pFileTaskData->FileStream = std::ifstream(filePath, std::ios::binary);
@@ -417,9 +428,8 @@ void FFileBackupManager::GenFolderChunkDataTask(this FFileBackupManager& self, s
     auto hasher = EmptyHasher;
 
     auto internalCaculateHashInConsumedBuf = [&](const char* content, uint32_t reverseStart, unsigned char out[16]) {
-        mbedtls_md5_starts(&pFileTaskData->MD5ctx);
-        mbedtls_md5_update(&pFileTaskData->MD5ctx, (const unsigned char*)content, FileChunkSize);
-        mbedtls_md5_finish(&pFileTaskData->MD5ctx, out);
+        auto hash = XXH3_128bits(content, FileChunkSize);
+        memcpy(out, &hash, sizeof(hash));
         };
     auto caculateHashInConsumedBuf = [&](uint32_t reverseStart, unsigned char out[16]) {
         internalCaculateHashInConsumedBuf(FileChunkBuf.GetContinuousConsumedBuf(reverseStart, FileChunkSize), reverseStart, out);
@@ -454,9 +464,8 @@ void FFileBackupManager::GenFolderChunkDataTask(this FFileBackupManager& self, s
             if (!chunkCache.fChunkAlreadyExist) {
                 rawData = FileChunkBuf.GetContinuousConsumedBuf(consumedBytes - chunkCache.StartPos - FileChunkSize, FileChunkSize);
                 if (!chunkCache.fStrongHash) {
-                    mbedtls_md5_starts(&pFileTaskData->MD5ctx);
-                    mbedtls_md5_update(&pFileTaskData->MD5ctx, (const unsigned char*)rawData, FileChunkSize);
-                    mbedtls_md5_finish(&pFileTaskData->MD5ctx, chunkCache.StrongHash);
+                    auto hash = XXH3_128bits(rawData, FileChunkSize);
+                    memcpy(chunkCache.StrongHash, &hash, sizeof(hash));
                 }
                 auto strongHashStr = std::string((const char*)chunkCache.StrongHash);
                 {
@@ -549,21 +558,21 @@ void FFileBackupManager::GenFolderChunkDataTask(this FFileBackupManager& self, s
         processChunkChacheFunc();
         };
     while (true) {
-        //std::unique_lock lock(pFileTaskData->FileChunkBufMtx, std::defer_lock);
-        //lock.lock();
-        auto [contentBuf, contentBufLen] = FileChunkBuf.GetContentBuf();
-        //lock.unlock();
+
         if (pFileTaskData->bEOF) {
             if (FileChunkBuf.ContentSize.load() == 0) {
                 assert((pFileTaskData->FileChunksData->FileSize > 0 && pFileTaskData->FileChunksData->Chunks.size() > 0) || pFileTaskData->FileChunksData->FileSize == 0);
                 break;
             }
         }
+        //std::unique_lock lock(pFileTaskData->FileChunkBufMtx, std::defer_lock);
+        //lock.lock();
+        auto contentBuf = FileChunkBuf.GetContentBuf();
+        //lock.unlock();
         int i = 0;
-        for (; i < contentBufLen && !bFlushAllChunkCache; i++) {
-            auto [ConsumedBufTupleL, ConsumedBufTupleR] = FileChunkBuf.GetConsumedBuf(0, FileChunkSize);
-            auto& [ConsumedBuf, ConsumedBufLen] = ConsumedBufTupleL;
-            auto inBytePtr = contentBuf + i;
+        for (; i < contentBuf.size() && !bFlushAllChunkCache; i++) {
+            auto [ConsumedBufL, ConsumedBufR] = FileChunkBuf.GetConsumedBuf(0, FileChunkSize);
+            auto inBytePtr = contentBuf.data() + i;
             consumedBytes++;
             bytesAfterLastChunk++;
             FileChunkBuf.EatSize(1);
@@ -577,7 +586,7 @@ void FFileBackupManager::GenFolderChunkDataTask(this FFileBackupManager& self, s
             }
             else {
                 lastHashValue = hasher.hashvalue;
-                hasher.update(*inBytePtr, *ConsumedBuf);
+                hasher.update(*inBytePtr, *ConsumedBufL.data());
             }
 
 
@@ -606,13 +615,12 @@ void FFileBackupManager::GenFolderChunkDataTask(this FFileBackupManager& self, s
             }
 
         }
-        assert(!(bFlushAllChunkCache && i < contentBufLen));
+        assert(!(bFlushAllChunkCache && i < contentBuf.size()));
         //lock.lock();
         //FileChunkBuf.EatSize(contentBufLen-i-1);
         //lock.unlock();
     }
-
-    mbedtls_md5_finish(&pFileTaskData->FileMD5ctx, output);
+    CryptoLibMD5Digest(pFileTaskData->MD5Handle, output);
     to_upper_hex(pFolderWorkData->FolderManifest.Files[ConvertViewToU8View(pFileTaskData->FileChunksData->FileName)]->FileHash, output, sizeof(output));
 
 }
@@ -620,23 +628,23 @@ void FFileBackupManager::GenFolderChunkDataTask(this FFileBackupManager& self, s
 void FFileBackupManager::GenFolderChunkDataReadFileTick(this FFileBackupManager& self, float delta, std::shared_ptr<GenFolderChunkDataWorkData_t> pFolderWorkData, std::shared_ptr<GenFolderChunkDataFileTaskData_t> pFileTaskData)
 {
     auto caculateFileHash = [&](const unsigned char* content, uint32_t len) {
-        mbedtls_md5_update(&pFileTaskData->FileMD5ctx, (const unsigned char*)content, len);
+        CryptoLibMD5Update(pFileTaskData->MD5Handle, std::span<const uint8_t>(content, len));
         };
     FileChunkBuf_t& FileChunkBuf = *pFileTaskData->FileChunkBuf;
     if (!pFileTaskData->FileStream.eof()) {
         //std::unique_lock lock(pFileTaskData->FileChunkBufMtx, std::defer_lock);
         //lock.lock();
-        auto [freeBuf, freeBufSize] = FileChunkBuf.GetEmptyBuf();
+        auto freeBuf = FileChunkBuf.GetEmptyBuf();
         //lock.unlock();
-        if (freeBufSize == 0) {
+        if (freeBuf.size() == 0) {
             return;
         }
-        pFileTaskData->FileStream.read(freeBuf, freeBufSize);
+        pFileTaskData->FileStream.read(freeBuf.data(), freeBuf.size());
         auto extractLen = pFileTaskData->FileStream.gcount();
         if (extractLen == 0) {
             return;
         }
-        caculateFileHash((const unsigned char*)freeBuf, extractLen);
+        caculateFileHash((const unsigned char*)freeBuf.data(), extractLen);
         //lock.lock();
         FileChunkBuf.FillSize(extractLen);
         //lock.unlock();
@@ -645,13 +653,13 @@ void FFileBackupManager::GenFolderChunkDataReadFileTick(this FFileBackupManager&
         if (pFileTaskData->WaitAppendDataLen > 0) {
             //std::unique_lock lock(pFileTaskData->FileChunkBufMtx, std::defer_lock);
             //lock.lock();
-            auto [freeBuf, freeBufSize] = FileChunkBuf.GetEmptyBuf();
+            auto freeBuf = FileChunkBuf.GetEmptyBuf();
             //lock.unlock();
-            if (freeBufSize == 0) {
+            if (freeBuf.size() == 0) {
                 return;
             }
-            auto fillSize = std::min(freeBufSize, uint32_t(pFileTaskData->WaitAppendDataLen));
-            memset(freeBuf, 0, fillSize);
+            auto fillSize = std::min(freeBuf.size(), size_t(pFileTaskData->WaitAppendDataLen));
+            memset(freeBuf.data(), 0, fillSize);
             pFileTaskData->WaitAppendDataLen -= fillSize;
             //lock.lock();
             FileChunkBuf.FillSize(fillSize);
