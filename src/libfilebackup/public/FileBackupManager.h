@@ -2,7 +2,7 @@
 #include "FileBackupExportDef.h"
 #include "FileBackupCommon.h"
 #include <handle.h>
-
+#include <span>
 enum class EGenFolderMetaDataStatus
 {
     None,
@@ -37,7 +37,7 @@ public:
     typedef std::function<void(float)> TOneFileChunkDataReadFileTick;
     //in tick thread
     typedef std::function<void()> TOneFileChunkDataPostProcessingTask;
-    typedef std::function<void(IChunkConverter*, const char8_t*, const uint32_t, const char*, const uint32_t)> TNewFileChunkDelegate;
+    typedef std::function<void(IChunkConverter*, std::span<const char8_t>, std::span<const char>)> TNewFileChunkDelegate;
     /***
     * TOneFileChunkDataTask can parallel execute 
     * TOneFileChunkDataPostProcessingTask is not  multi-thread safe

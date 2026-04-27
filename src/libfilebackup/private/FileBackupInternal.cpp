@@ -53,13 +53,13 @@ void FChunkConverter::UpdateConvertDirection(EConvertDirection newDirection)
     }
 }
 
-void FChunkConverter::Convert(uint8_t* FileChunk)
+void FChunkConverter::Convert(const uint8_t* FileChunk)
 {
     switch (Direction)
     {
     case EConvertDirection::ToFileChunk:
     {
-        size_t const dSize = ZSTD_decompressDCtx(DCtx, FileChunk, FileChunkSize, ZSTDBuf, ZSTDBufContentSize);
+        size_t const dSize = ZSTD_decompressDCtx(DCtx, (void*)FileChunk, FileChunkSize, ZSTDBuf, ZSTDBufContentSize);
         break;
     }
     case EConvertDirection::ToChunkFile:

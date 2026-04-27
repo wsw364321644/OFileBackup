@@ -163,7 +163,7 @@ std::shared_ptr<const FolderManifest_t> FolderManifest_t::from_string(FCharBuffe
             ec = std::make_error_code(std::errc::invalid_argument);
             return nullptr;
         }
-        manifest.OrderedFiles.try_emplace(ConvertViewToU8View(FileChunksData.FileName), pFileChunksData);
+
         auto fileRes = field.value().get_object();
         if (fileRes.error() != simdjson::error_code::SUCCESS) {
             ec = std::make_error_code(std::errc::invalid_argument);
@@ -213,14 +213,7 @@ std::shared_ptr<const FolderManifest_t> FolderManifest_t::from_string(FCharBuffe
             }
         }
     }
-    int i = 0;
-    for (auto& [_,file] : manifest.OrderedFiles) {
-        file->Index = i++;
-        int j = 0;
-        for (auto& chunk:file->Chunks) {
-            chunk->Index = j++;
-        }
-    }
+
     return out;
 }
 
@@ -229,25 +222,139 @@ int32_t FolderManifest_t::get_string_extra_space()
     return simdjson::SIMDJSON_PADDING;
 }
 
-std::shared_ptr<const FolderManifestCompareResult_t> CompareFolderManifest(const FolderManifest_t& source, const FolderManifest_t& target)
-{
-    static std::shared_ptr<FolderManifestCompareResult_t> out;
+std::shared_ptr<const FolderManifestCompareResult_t> CompareFolderManifest(const FolderManifest_t& target, std::shared_ptr<const FolderManifest_t> source) {
+
+    auto out = std::make_shared<FolderManifestCompareResult_t>();
     if (!out) {
-        out = std::make_shared<FolderManifestCompareResult_t>();
+        return nullptr;
     }
-    out->Clear();
-    auto& HexNames = out->MissingFileChunks;
-    for (auto& [pathstr, FileChunksData] : target.Files) {
-        for (auto& pFileChunk : FileChunksData->Chunks) {
-            auto& FileChunk = *pFileChunk;
-            HexNames.insert(FileChunk.HexName);
+    // 1. 构建源manifest中所有已知的chunk名称集合
+
+    if (source) {
+        for (const auto& [pathstr, FileChunksData] : source->Files) {
+            out->FilesNeedDelete.emplace(pathstr);
+            for (auto& pFileChunk : FileChunksData->Chunks) {
+                auto& FileChunk = *pFileChunk;
+
+                auto res=out->SourceChunkReverseIndex.try_emplace(GetHexNameView( FileChunk.HexName));
+                res.first->second.ChunkInFileData.emplace_back( FileChunksData , pFileChunk);
+            }
         }
     }
-    for (auto& [pathstr, FileChunksData] : source.Files) {
-        for (auto& pFileChunk : FileChunksData->Chunks) {
-            auto& FileChunk = *pFileChunk;
-            HexNames.erase(FileChunk.HexName);
+
+    // 2. 对目标manifest中的每个文件进行处理
+    for (const auto& [target_filename, target_file_data] : target.Files) {
+        if (source) {
+            out->FilesNeedDelete.erase(target_filename);
+            auto itr=source->Files.find(target_filename);
+            if (itr!=source->Files.end()&&memcmp(itr->second->FileHash, target_file_data->FileHash, FileHashLen) == 0) {
+                continue;
+            }
         }
+        // 获取目标文件的所有chunks，它们已经是有序的
+        std::vector<std::shared_ptr<FileChunkData_t>> all_target_chunks;
+        for (const auto& chunk_ptr : target_file_data->Chunks) {
+            all_target_chunks.push_back(chunk_ptr);
+
+            auto res = out->TargetChunkReverseIndex.try_emplace(GetHexNameView(chunk_ptr->HexName));
+            res.first->second.ChunkInFileData.emplace_back(target_file_data, chunk_ptr);
+        }
+
+        if (all_target_chunks.empty()) {
+            out->FileConstructChunks.try_emplace(target_filename);
+            continue;
+        }
+
+        // 整个文件区间
+        uint64_t file_start = all_target_chunks.front()->StartPos;
+        uint64_t file_end = all_target_chunks.back()->StartPos + FileChunkSize;
+
+        // 使用贪心算法选择最优的chunk组合来覆盖整个文件
+        std::set<std::shared_ptr<FileConstructChunkData_t>, FileConstructChunkDataLess_t,
+            allocator_save_memory_operator<std::shared_ptr<FileConstructChunkData_t>>> needed_chunks;
+
+        uint64_t current_pos = file_start;
+
+        while (current_pos < file_end) {
+            // 找出所有能覆盖当前位置的chunks
+            std::vector<std::shared_ptr<FileChunkData_t>> candidates;
+
+            for (const auto& chunk_ptr : all_target_chunks) {
+                uint64_t chunk_start = chunk_ptr->StartPos;
+                uint64_t chunk_end = chunk_start + FileChunkSize;
+
+                if (chunk_start <= current_pos && chunk_end > current_pos) {
+                    // 这个chunk能覆盖当前位置
+                    candidates.push_back(chunk_ptr);
+                }
+                else if (chunk_start > current_pos && !candidates.empty()) {
+                    // 如果已经找到了覆盖当前位置的chunks，并且遇到不重叠的chunk，
+                    // 由于chunks是按位置排序的，后面的chunks也不会覆盖当前位置
+                    break;
+                }
+            }
+
+            if (candidates.empty()) {
+                // 理论上不会发生，因为chunks应该是连续的
+                break;
+            }
+
+            // 从中选择最优的一个：优先选择源中存在的，其次选择覆盖范围更广的
+            std::shared_ptr<FileChunkData_t> best_chunk = nullptr;
+            uint64_t best_end = current_pos;
+            bool best_from_source = false;
+
+            for (const auto& chunk_ptr : candidates) {
+                uint64_t chunk_end = chunk_ptr->StartPos + FileChunkSize;
+                bool is_from_source = out->SourceChunkReverseIndex.count(GetHexNameView(chunk_ptr->HexName));
+
+                // 优先选择源中存在的，如果都是同类型则选择覆盖范围更广的
+                bool should_update = false;
+                if (!best_chunk) {
+                    should_update = true;
+                }
+                else if (is_from_source && !best_from_source) {
+                    should_update = true;
+                }
+                else if (is_from_source == best_from_source && chunk_end > best_end) {
+                    should_update = true;
+                }
+
+                if (should_update) {
+                    best_chunk = chunk_ptr;
+                    best_end = chunk_end;
+                    best_from_source = is_from_source;
+                }
+            }
+
+            if (!best_chunk) {
+                break;
+            }
+
+            // 添加选中的chunk
+
+            if (best_from_source) {
+                // 这个chunk在源中存在
+                //out->SourceChunkReverseIndex[chunk_name] = { target_filename, std::cref(best_chunk->StartPos) };
+                auto construct_chunk = std::make_shared<FileConstructChunkData_t>(best_chunk ,true );
+                needed_chunks.insert(construct_chunk);
+            }
+            else {
+                // 这个chunk在源中不存在，需要获取
+                out->MissingFileChunks.insert(GetHexNameView(best_chunk->HexName));
+                auto construct_chunk = std::make_shared<FileConstructChunkData_t>(best_chunk,false);
+                needed_chunks.insert(construct_chunk);
+            }
+
+            // 更新当前覆盖位置
+            current_pos = best_end;
+        }
+
+        if (!needed_chunks.empty()) {
+            out->FileConstructChunks[target_filename] = std::move(needed_chunks);
+        }
+
     }
+
     return out;
 }

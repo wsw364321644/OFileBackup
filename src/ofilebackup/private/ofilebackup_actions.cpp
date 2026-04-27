@@ -78,12 +78,12 @@ std::tuple< bool, std::shared_ptr<const FolderManifest_t>> gen_folder_manifest_b
             if (IDopt.has_value()) {
                 auto i = *IDopt;
                 auto [task, readFileTick, postTask] = FileBackupManager->GenFolderChunkDataGetNextFileTask(workHandle,
-                    [&](IChunkConverter* ChunkConverter, const char8_t* name, uint32_t namelen, const char* content, uint32_t contentlen) {
+                    [&](IChunkConverter* ChunkConverter, std::span<const char8_t> name, std::span<const char> content) {
                         if (!chunkOutPathStr.empty()) {
-                            auto outFilePath = chunkOutPath / std::u8string_view(name, namelen);
+                            auto outFilePath = chunkOutPath / std::u8string_view(name.data(), name.size());
                             std::ofstream ofs(outFilePath, std::ios::binary);
                             if (ofs.is_open()) {
-                                ChunkConverter->Convert((uint8_t*)content);
+                                ChunkConverter->Convert((const uint8_t*)content.data());
                                 auto ChunkFileBuf = ChunkConverter->GetChunkFileBuf();
                                 auto ChunkFileLen = ChunkConverter->GetChunkFileSize();
                                 ofs.write((const char*)ChunkFileBuf, ChunkFileLen);
@@ -92,7 +92,7 @@ std::tuple< bool, std::shared_ptr<const FolderManifest_t>> gen_folder_manifest_b
                         }
                         auto process = FileBackupManager->GenFolderChunkDataGetProcess(workHandle);
                         if (Delegate) {
-                            Delegate(CompleteChunkData_t{ name, namelen, content, contentlen }, GenProcessData_t{ process->TotalSize,process->CompleteSize });
+                            Delegate(CompleteChunkData_t{ name.data(), uint32_t(name.size()), content.data(), uint32_t(content .size())}, GenProcessData_t{process->TotalSize,process->CompleteSize});
                         }
                     }
                 );
@@ -208,10 +208,10 @@ bool compare_folder_manifest(std::u8string_view sourcePathStr, std::u8string_vie
     if (ec) {
         return false;
     }
-    auto diffRes = CompareFolderManifest(*pSourceFolderManifest, *pTargetFolderManifest);
+    auto diffRes = CompareFolderManifest( *pTargetFolderManifest, pSourceFolderManifest);
     if (outFilePathStr.empty()) {
         for (auto& sourcePathStr : diffRes->MissingFileChunks) {
-            std::cout << sourcePathStr << std::endl;
+            std::cout << ConvertU8ViewToString(sourcePathStr) << std::endl;
         }
     }
     else {
@@ -297,13 +297,6 @@ EFileBackupError recover_folder(std::u8string_view workPathStr, std::u8string_vi
         }
     }
 
-    bool res{ true };
-    auto recoverHandle = FolderRecoverHelper.AddTask(pManifest, pSourceManifest, workPathStr, chunkPathStr, tempPathStr,[&](std::error_code& ec) {
-        bExit = true;
-        });
-    if (!recoverHandle.IsValid()) {
-        return EFileBackupError::FBE_INTERNAL_ERROR;
-    }
     uint8_t ParallelTaskNum = std::max(1, int(std::thread::hardware_concurrency()));
     //uint8_t ParallelTaskNum = 1;
     FTaskSlotCounter<void> TaskCounter(ParallelTaskNum);
@@ -318,32 +311,94 @@ EFileBackupError recover_folder(std::u8string_view workPathStr, std::u8string_vi
     }
     CommonTaskHandle_t tickHandle;
     uint32_t lastfileChunkCount{ 0 };
+
+
+    bool res{ true };
+    CommonHandle32_t recoverHandle = FolderRecoverHelper.AddTask(pManifest, pSourceManifest, workPathStr, chunkPathStr, tempPathStr
+        , [&](EFolderRecoverStatus status, std::error_code& ec) {
+            switch (status) {
+            case EFolderRecoverStatus::FRS_FinishWork: {
+                auto IDopt = TaskCounter.GetFreeSlot();
+                if (!IDopt.has_value()) {
+                    return EFileBackupError::FBE_INTERNAL_ERROR;
+                }
+                auto i = *IDopt;
+                auto task = FolderRecoverHelper.GetFinishRecoverTask(recoverHandle);
+                if (task) {
+                    auto [newhandle, newf] = GetTaskManagerSingleton()->AddTask(taskDataList[i].WorkflowHandle, task);
+                    TaskCounter.SetFuture(i, newhandle, newf);
+                }
+                break;
+            }
+            case EFolderRecoverStatus::FRS_Finished: {
+                bExit = true;
+                if (ec) {
+                    res = false;
+                }
+                break;
+            }
+            }
+        }
+    );
+    if (!recoverHandle.IsValid()) {
+        return EFileBackupError::FBE_INTERNAL_ERROR;
+    }
+
+    auto processOpt = FolderRecoverHelper.GetFolderRecoverProcess(recoverHandle);
+    if (!processOpt.has_value()) {
+        return EFileBackupError::FBE_INTERNAL_ERROR;
+    }
+    auto& progress = processOpt.value().get();
+    auto needChunks = progress.CompareResult->MissingFileChunks;
+
+    //init GetRecoverBySourceTask
+    auto IDopt = TaskCounter.GetFreeSlot();
+    if (!IDopt.has_value()) {
+        return EFileBackupError::FBE_INTERNAL_ERROR;
+    }
+    auto i = *IDopt;
+    auto task = FolderRecoverHelper.GetRecoverBySourceTask(recoverHandle);
+    if (task) {
+        auto [newhandle, newf] = GetTaskManagerSingleton()->AddTask(taskDataList[i].WorkflowHandle, task);
+        TaskCounter.SetFuture(i, newhandle, newf);
+    }
+
+    //init GetRecoverByChunkTask
     tickHandle = GetTaskManagerSingleton()->AddTick(GetTaskManagerSingleton()->GetMainThread(),
         [&](float delta) {
             if (bExit) {
                 GetTaskManagerSingleton()->Stop();
             }
             FolderRecoverHelper.Tick(delta);
+
+            if (lastfileChunkCount != progress.GetFolderRecoverProgressHeader().CompleteFileChunkCount) {
+                lastfileChunkCount = progress.GetFolderRecoverProgressHeader().CompleteFileChunkCount;
+                std::cout << "\r" << progress.GetFolderRecoverProgressHeader().CompleteFileChunkCount << "/" << progress.GetFolderRecoverProgressHeader().AllFileChunkNum << std::flush;
+            }
+
+
             auto& finishedSlots = TaskCounter.CheckFinished();
             for (auto& slot : finishedSlots) {
-                taskDataList[slot.ID].PostTask();
-            }
-            auto IDopt = TaskCounter.GetFreeSlot();
-            if (IDopt.has_value()) {
-                auto i = *IDopt;
-                auto [task, postTask] = FolderRecoverHelper.GetNextRecoverFileTask(recoverHandle);
-                if (task) {
-                    auto [newhandle, newf] = GetTaskManagerSingleton()->AddTask(taskDataList[i].WorkflowHandle, task);
-                    taskDataList[i].PostTask = postTask;
-                    TaskCounter.SetFuture(i, newhandle, newf);
+                if (taskDataList[slot.ID].PostTask) {
+                    taskDataList[slot.ID].PostTask();
                 }
             }
-            auto [_,fileChunkCount, opt]=FolderRecoverHelper.GetFolderRecoverProcess(recoverHandle);
-            if (opt.has_value()) {
-                auto& progress= opt.value().get();
-                if (lastfileChunkCount != fileChunkCount) {
-                    lastfileChunkCount = fileChunkCount;
-                    std::cout << "\r" << fileChunkCount << "/" << progress.GetFolderRecoverProgressHeader().AllFileChunkNum << std::flush;
+            if (needChunks.size() == 0) {
+                return;
+            }
+
+            auto IDopt = TaskCounter.GetFreeSlot();
+            if (IDopt.has_value()) {
+
+                auto chunkItr = needChunks.begin();
+                auto chunkName = *chunkItr;
+                needChunks.erase(chunkItr);
+
+                auto i = *IDopt;
+                auto task = FolderRecoverHelper.GetRecoverByChunkTask(recoverHandle, chunkName);
+                if (task) {
+                    auto [newhandle, newf] = GetTaskManagerSingleton()->AddTask(taskDataList[i].WorkflowHandle, task);
+                    TaskCounter.SetFuture(i, newhandle, newf);
                 }
             }
 
