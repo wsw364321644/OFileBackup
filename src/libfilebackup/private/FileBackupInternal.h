@@ -14,7 +14,6 @@
 #include <absl/container/flat_hash_set.h>
 #endif
 
-#include <crypto_lib_md5.h>
 #include <fstream>
 #include <atomic>
 #include <span>
@@ -123,7 +122,7 @@ typedef struct FileChunkBuf_t {
 
 typedef struct GenFolderChunkDataFileTaskData_t {
     HashMapType FileAllHashMap;
-    CommonHandlePtr_t MD5Handle;
+    XXH3_state_t* XXH3State;
     FChunkConverter ChunkConverter{};
     std::shared_ptr<FileChunksData_t> FileChunksData;
     IFileBackupManagerInterface::TNewFileChunkDelegate  NewFileChunkDelegate;
@@ -136,8 +135,9 @@ typedef struct GenFolderChunkDataFileTaskData_t {
     uint32_t WaitAppendDataLen{ 0 };
 
     ~GenFolderChunkDataFileTaskData_t() {
-        if (MD5Handle) {
-            CryptoLibMD5Release(MD5Handle);
+        XXH3_createState();
+        if (XXH3State) {
+            XXH3_freeState(XXH3State);
         }
     }
     void Clear() {
@@ -147,8 +147,8 @@ typedef struct GenFolderChunkDataFileTaskData_t {
         bEOF = false;
         WaitAppendDataLen = 0;
         FileChunkBuf->Clear();
-        if (MD5Handle) {
-            CryptoLibMD5Reset(MD5Handle);
+        if (XXH3State) {
+            XXH3_128bits_reset(XXH3State);
         }
     }
 }GenFolderChunkDataFileTaskData_t;

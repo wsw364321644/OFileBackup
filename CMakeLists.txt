@@ -84,12 +84,6 @@ ImportProject(xxHash STATIC ${STATIC_CRT} ${SSH} FIND TAG v0.8.3)
 ImportTarget(rollinghashcpp ${SSH} TAG master)
 ImportProject(concurrentqueue ${SSH} TAG master)
 
-find_package(OpenSSL)
-
-if(NOT OpenSSL_FOUND)
-  ImportProject(MbedTLS STATIC ${STATIC_CRT} ${SSH} FIND TAG mbedtls-3.6.5)
-endif()
-
 set(TF_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(TF_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(TF_BUILD_PROFILER OFF CACHE BOOL "" FORCE)

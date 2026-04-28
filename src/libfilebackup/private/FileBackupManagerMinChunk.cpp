@@ -111,8 +111,8 @@ std::tuple<IFileBackupManagerInterface::TOneFileChunkDataTask, IFileBackupManage
             pFileTaskData = std::make_shared<GenFolderChunkDataFileTaskData_t>();
             pFileTaskData->FileChunkBuf = std::make_shared<FileChunkBuf_t>();;
             pFileTaskData->ChunkConverter.UpdateConvertDirection(EConvertDirection::ToChunkFile);
-            pFileTaskData->MD5Handle = CryptoLibMD5Begin();
-            if (!pFileTaskData->MD5Handle.IsValid()) {
+            pFileTaskData->XXH3State = XXH3_createState();
+            if (!pFileTaskData->XXH3State) {
                 return { nullptr,nullptr,nullptr };
             }
         }
@@ -479,7 +479,8 @@ void FFileBackupManagerMinChunk::GenFolderChunkDataTask(this FFileBackupManagerM
         //FileChunkBuf.EatSize(contentBufLen-i-1);
         //lock.unlock();
     }
-    CryptoLibMD5Digest(pFileTaskData->MD5Handle, output);
+    auto xxhash=XXH3_128bits_digest(pFileTaskData->XXH3State);
+    CopyxxHashToBuf(xxhash, output);
     to_upper_hex(pFolderWorkData->FolderManifest.Files[ConvertViewToU8View(pFileTaskData->FileChunksData->FileName)]->FileHash, output, sizeof(output));
 
 }
@@ -487,7 +488,7 @@ void FFileBackupManagerMinChunk::GenFolderChunkDataTask(this FFileBackupManagerM
 void FFileBackupManagerMinChunk::GenFolderChunkDataReadFileTick(this FFileBackupManagerMinChunk& self, float delta, std::shared_ptr<GenFolderChunkDataWorkData_t> pFolderWorkData, std::shared_ptr<GenFolderChunkDataFileTaskData_t> pFileTaskData)
 {
     auto caculateFileHash = [&](const unsigned char* content, uint32_t len) {
-        CryptoLibMD5Update(pFileTaskData->MD5Handle, std::span<const uint8_t>(content, len));
+        XXH3_128bits_update(pFileTaskData->XXH3State, content, len);
         };
     FileChunkBuf_t& FileChunkBuf = *pFileTaskData->FileChunkBuf;
     if (!pFileTaskData->FileStream.eof()) {
