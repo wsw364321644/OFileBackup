@@ -16,6 +16,7 @@ function(configure_library TARGET_NAME)
     target_link_libraries(${TARGET_NAME} PRIVATE xxHash::xxhash)
     target_link_libraries(${TARGET_NAME} PRIVATE zstd::libzstd_static)
     target_link_libraries(${TARGET_NAME} PRIVATE RapidJSON::RapidJSON)
+    target_link_libraries(${TARGET_NAME} PRIVATE Glob::Glob)
 
     if(Boost_FOUND)
         target_compile_definitions(${TARGET_NAME} PRIVATE -DBOOST_FOUND)

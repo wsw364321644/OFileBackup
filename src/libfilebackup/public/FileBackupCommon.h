@@ -38,20 +38,22 @@ typedef struct FileChunkDataLess_t {
     }
 }FileChunkDataLess_t;
 
-typedef std::set<std::shared_ptr<FileChunkData_t>, FileChunkDataLess_t, allocator_save_memory_operator<std::shared_ptr<FileChunkData_t>>> TFileChunks;
+
 typedef struct FileChunksData_t {
+    typedef std::set<std::shared_ptr<FileChunkData_t>, FileChunkDataLess_t, allocator_save_memory_operator<std::shared_ptr<FileChunkData_t>>> TFileChunks;
     string_save_memory_operator FileName;
     char FileHash[FileHashLen + 1]{0};
     uint64_t FileSize;
     TFileChunks Chunks;
 }FileChunksData_t;
 
-
 inline std::u8string_view GetHexNameView(char* HexName) {
     return std::u8string_view((const char8_t*)HexName, HexNameStrLen);
 }
+
 typedef struct FolderManifest_t {
-    std::unordered_map<std::u8string_view, std::shared_ptr<FileChunksData_t>, string_hash,std::equal_to<>, allocator_save_memory_operator<std::pair<const std::u8string_view, std::shared_ptr<FileChunksData_t>>>> Files;
+    typedef std::unordered_map<std::u8string_view, std::shared_ptr<FileChunksData_t>, string_hash, std::equal_to<>, allocator_save_memory_operator<std::pair<const std::u8string_view, std::shared_ptr<FileChunksData_t>>>> TFiles;
+    TFiles Files;
     uint8_t HexNameLen{ HexNameStrLen };
     uint32_t ChunkFileMaxSize{ 0 };
     char ID[bin_to_hex_length(UUID_128_BYTES)+1]{ 0 };
@@ -75,7 +77,7 @@ public:
     virtual void UpdateConvertDirection(EConvertDirection Direction) = 0;
     virtual void Convert(const uint8_t* FileChunk) = 0;
 };
-std::shared_ptr<IChunkConverter> NewChunkConverter();
+LIB_FILEBACKUP_EXPORT std::shared_ptr<IChunkConverter> NewChunkConverter();
 
 
 typedef struct ChunkReverseCheckData_t {

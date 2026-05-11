@@ -18,7 +18,6 @@
 #include <atomic>
 #include <span>
 
-
 #ifdef BOOST_FOUND
 typedef boost::unordered_flat_set<std::string> HashSetType;
 typedef boost::unordered_flat_map<WeakHash_t, HashSetType> HashMapType;
@@ -154,13 +153,15 @@ typedef struct GenFolderChunkDataFileTaskData_t {
 }GenFolderChunkDataFileTaskData_t;
 
 typedef struct GenFolderChunkDataWorkData_t {
-    EGenFolderMetaDataStatus Status{ EGenFolderMetaDataStatus::None };
-    EGenFolderMetaDataError Error{ EGenFolderMetaDataError::GFMDE_OK };
-    IFileBackupManagerInterface::TGenFolderMetaDataFinishDelegate FinishDelegate;
-    std::filesystem::path WorkPath;
+    std::atomic<EGenFolderMetaDataStatus> Status{ EGenFolderMetaDataStatus::None };
+    EGenFolderMetaDataStatus LastStatus{ EGenFolderMetaDataStatus::None };
+    IFileBackupManagerInterface::TGenFolderMetaDataStatusChangedDelegate StatusChangedDelegate;
+
+    GenFolderChunkParams_t Params;
     uint64_t ToltalSize{ 0 };
     std::atomic<uint64_t> CompleteSize{ 0 };
-    std::map<uint64_t, std::set<std::u8string_view>> FileItrList;
+    std::map<uint64_t, std::set<std::u8string_view>> FileItrList; //order file name by file sizes
+    std::unordered_map<std::u8string_view, std::string> FileLocalPathMap; //Get local file path from file name
 
     //std::shared_mutex FileTaskMtx;
     HashMapType AllHashMap;
@@ -171,6 +172,8 @@ typedef struct GenFolderChunkDataWorkData_t {
     FolderManifest_t FolderManifest;
     std::shared_ptr<GenFolderMetaDataProcess_t> OutProcess;
     std::shared_ptr<FolderManifest_t> OutFolderManifest;
+    std::error_code EC;
+
 }GenFolderChunkDataWorkData_t;
 
 

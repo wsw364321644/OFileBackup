@@ -83,6 +83,7 @@ ImportProject(zstd ${STATIC_CRT} ${SSH} FIND TAG v1.5.7)
 ImportProject(xxHash STATIC ${STATIC_CRT} ${SSH} FIND TAG v0.8.3)
 ImportTarget(rollinghashcpp ${SSH} TAG master)
 ImportProject(concurrentqueue ${SSH} TAG master)
+ImportProject(Glob ${SSH} TAG master)
 
 set(TF_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(TF_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)

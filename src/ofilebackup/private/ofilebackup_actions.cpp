@@ -19,11 +19,18 @@ std::tuple< bool, std::shared_ptr<const FolderManifest_t>> gen_folder_manifest_b
     bool bExit{ false };
     std::error_code ec;
     std::shared_ptr<const FolderManifest_t> out;
-    IFileBackupManagerInterface* FileBackupManager = GetFileBackupManagerInstance();
-    auto workHandle = FileBackupManager->GenFolderChunkData(workPathStr.data(),
-        [&](std::shared_ptr<const FolderManifest_t> MetaData) {
-            bExit = true;
-            out = MetaData;
+    IFileBackupManagerInterface* FileBackupManager = GetFileBackupManagerSingleton();
+    CommonHandle32_t workHandle = FileBackupManager->GenFolderChunkData(workPathStr.data(),
+        [&](EGenFolderMetaDataStatus status, std::error_code& ec) {
+            switch (status) {
+            case EGenFolderMetaDataStatus::Finished:
+                bExit = true;
+                if (!ec) {
+                    out=GetFileBackupManagerSingleton()->GetFolderChunkData(workHandle);
+                }
+                break;
+            }
+
         }
     );
     auto hexNameItr = hexNameList.begin();
@@ -90,7 +97,7 @@ std::tuple< bool, std::shared_ptr<const FolderManifest_t>> gen_folder_manifest_b
                                 ofs.close();
                             }
                         }
-                        auto process = FileBackupManager->GenFolderChunkDataGetProcess(workHandle);
+                        auto process = FileBackupManager->GenFolderChunkDataGetProgress(workHandle);
                         if (Delegate) {
                             Delegate(CompleteChunkData_t{ name.data(), uint32_t(name.size()), content.data(), uint32_t(content .size())}, GenProcessData_t{process->TotalSize,process->CompleteSize});
                         }
