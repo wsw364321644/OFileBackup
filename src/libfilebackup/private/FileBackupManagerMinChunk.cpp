@@ -4,7 +4,6 @@
 #include <FunctionExitHelper.h>
 #include <std_ext.h>
 
-#include <rabinkarphash.h>
 #include <xxhash.h>
 #include <zstd.h>
 #include <filesystem>
@@ -15,19 +14,6 @@
 #include <mutex>
 #include <algorithm>
 #include <map>
-
-
-inline KarpRabinHash EmptyHasher(FileChunkSize, CHAR_BIT * sizeof(uint32_t));
-
-struct HasherInitHelper_t {
-    HasherInitHelper_t() {
-        //same seed that output same hash each run
-        EmptyHasher.hasher = CharacterHash(maskfnc<uint32_t>(CHAR_BIT * sizeof(uint32_t)), 0, 0);
-    }
-};
-inline HasherInitHelper_t HasherInitHelper;
-
-
 
 std::tuple<IFileBackupManagerInterface::TOneFileChunkDataTask, IFileBackupManagerInterface::TOneFileChunkDataReadFileTick, IFileBackupManagerInterface::TOneFileChunkDataPostProcessingTask> FFileBackupManagerMinChunk::GenFolderChunkDataGetNextFileTask(CommonHandle32_t handle, TNewFileChunkDelegate NewFileChunkDelegate)
 {
@@ -155,9 +141,10 @@ void FFileBackupManagerMinChunk::GenFolderChunkDataTask(this FFileBackupManagerM
     std::streamoff consumedBytes{ 0 };
     bool bFlushAllChunkCache{ false };
     int bytesAfterLastChunk = 0;
-    auto rollingHashNeedEat = FileChunkSize;
-    auto hasher = EmptyHasher;
-    
+
+    RollingAdler32.Reset();
+    auto& hasher = RollingAdler32;
+
     auto internalCaculateHashInConsumedBuf = [&](const char* content, uint32_t reverseStart, unsigned char out[16]) {
         auto hash = XXH3_128bits(content, FileChunkSize);
         CopyxxHashToBuf(hash, out);
@@ -166,13 +153,10 @@ void FFileBackupManagerMinChunk::GenFolderChunkDataTask(this FFileBackupManagerM
         internalCaculateHashInConsumedBuf(FileChunkBuf.GetContinuousConsumedBuf(reverseStart, FileChunkSize), reverseStart, out);
         };
     auto caculateAllHashInConsumedBuf = [&](uint32_t reverseStart, WeakHash_t& weakHash, unsigned char out[16]) {
-        auto hasher = EmptyHasher;
+        FRollingAdler32 hasher2;
         auto rawData = FileChunkBuf.GetContinuousConsumedBuf(reverseStart, FileChunkSize);
         internalCaculateHashInConsumedBuf(rawData, reverseStart, out);
-        for (int i = 0; i < FileChunkSize; i++) {
-            hasher.eat(rawData[i]);
-        }
-        weakHash = hasher.hashvalue;;
+        weakHash = hasher2.Get();
         };
 
     auto processChunkChacheFunc = [&]() {
@@ -237,7 +221,7 @@ void FFileBackupManagerMinChunk::GenFolderChunkDataTask(this FFileBackupManagerM
     /// @detail 1.保证块n不会跟块n+2重叠 2.保证块n距离块n+3大于FileChunkSize
     /// 当缓存已有两个块，如果新加入的块3仍旧与块1重叠，则块3取代块2
     /// 当缓存已有三个块，如果新加入的块4仍旧与块2重叠，则块4取代块3
-    /// 当缓存已有三个块，块4取代块3，重新生成位于块4前与之不重叠的块作为块2
+    /// 当缓存已有三个块，块4成为第三个块，重新生成位于块4前与之不重叠的块作为第二个块
     /// 空间利用率最差时，每块有2/3的冗余数据
     /// 
     auto cacheNewFunc = [&](uint32_t weakhash, const unsigned char stronghash[16] = nullptr, bool fExist = false) {
@@ -267,7 +251,7 @@ void FFileBackupManagerMinChunk::GenFolderChunkDataTask(this FFileBackupManagerM
                     caculateAllHashInConsumedBuf(uint32_t(consumedBytes - endPos), weakHash, output);
                     bool bWeakExist{ false };
                     bool bStrongExist{ false };
-                    auto hashItr = pFileTaskData->FileAllHashMap.find(hasher.hashvalue);
+                    auto hashItr = pFileTaskData->FileAllHashMap.find(hasher.Get());
                     if (hashItr != pFileTaskData->FileAllHashMap.end()) {
                         bWeakExist = true;
                         auto stronHashItr = hashItr->second.find(std::string((const char*)output));
@@ -307,29 +291,36 @@ void FFileBackupManagerMinChunk::GenFolderChunkDataTask(this FFileBackupManagerM
         //lock.lock();
         auto contentBuf = FileChunkBuf.GetContentBuf();
         //lock.unlock();
+
+
         int i = 0;
-        for (; i < contentBuf.size() && !bFlushAllChunkCache; i++) {
-            auto [ConsumedBufL, ConsumedBufR] = FileChunkBuf.GetConsumedBuf(0, FileChunkSize);
-            auto inBytePtr = contentBuf.data() + i;
-            consumedBytes++;
-            bytesAfterLastChunk++;
-            FileChunkBuf.EatSize(1);
-            //skip first FileChunkSize number of byte 
-            if (rollingHashNeedEat > 0) {
-                rollingHashNeedEat--;
-                hasher.eat(*inBytePtr);
-                if (rollingHashNeedEat > 0) {
-                    continue;
+        for (; i < contentBuf.size() && !bFlushAllChunkCache; ) {
+            if (!hasher.IsInited()) {
+                if (contentBuf.size() >= FileChunkSize) {
+                    hasher.Init((const uint8_t*)contentBuf.data(), FileChunkSize);
+                    consumedBytes += FileChunkSize;
+                    bytesAfterLastChunk += FileChunkSize;
+                    i += FileChunkSize;
+                    FileChunkBuf.EatSize(FileChunkSize);
+                }
+                else {
+                    break;
                 }
             }
             else {
-                hasher.update(*ConsumedBufL.data(),*inBytePtr);
+                auto [ConsumedBufL, ConsumedBufR] = FileChunkBuf.GetConsumedBuf(0, FileChunkSize);
+                auto inBytePtr = contentBuf.data() + i;
+                consumedBytes++;
+                bytesAfterLastChunk++;
+                FileChunkBuf.EatSize(1);
+                hasher.Roll(*ConsumedBufL.data(), *inBytePtr);
+                i++;
             }
 
 
             bool bWeakExist{ false };
             bool bStrongExist{ false };
-            auto hashItr = pFileTaskData->FileAllHashMap.find(hasher.hashvalue);
+            auto hashItr = pFileTaskData->FileAllHashMap.find(hasher.Get());
             if (hashItr != pFileTaskData->FileAllHashMap.end()) {
                 bWeakExist = true;
                 caculateHashInConsumedBuf(0, output);
@@ -341,14 +332,14 @@ void FFileBackupManagerMinChunk::GenFolderChunkDataTask(this FFileBackupManagerM
 
             if (bWeakExist) {
                 if (bStrongExist) {
-                    cacheNewFunc(hasher.hashvalue, output, true);
+                    cacheNewFunc(hasher.Get(), output, true);
                 }
                 else {
-                    cacheNewFunc(hasher.hashvalue, output);
+                    cacheNewFunc(hasher.Get(), output);
                 }
             }
             else {
-                cacheNewFunc(hasher.hashvalue);
+                cacheNewFunc(hasher.Get());
             }
 
         }

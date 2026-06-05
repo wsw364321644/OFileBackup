@@ -19,9 +19,9 @@ typedef struct GenFolderMetaDataProcess_t {
 }GenFolderMetaDataProcess_t;
 
 typedef struct GenFolderChunkFileMapping_t {
-    string_save_memory_operator RootPath;;
-    string_save_memory_operator RelativeGlobPath;
-    string_save_memory_operator TargetRelativePath;
+    save_memory_operator_string RootPath;;
+    save_memory_operator_string RelativeGlobPath;
+    save_memory_operator_string TargetRelativePath;
     bool bRecursive{ false };
 }GenFolderChunkFileMapping_t;
 
@@ -31,7 +31,7 @@ enum class ERecoverFileAttributes {
     RFA_Versionedconfig,//if exist do not be recovered
 };
 typedef struct GenFolderChunkFileAttributes_t {
-    string_save_memory_operator Path;
+    save_memory_operator_string Path;
     ERecoverFileAttributes Attributes;
 }GenFolderChunkFileAttributes_t;
 

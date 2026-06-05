@@ -14,8 +14,8 @@ else()
   set(_bin_suffix 32)
 endif()
 
-set(OCmakeUtil_TAG 4a362589fa61c539a156c66cb33ac7f88626fc99)
-set(UTILPP_TAG 754cc522454f5dd680959321c06fa9b65e45d77f)
+set(OCmakeUtil_TAG 7cec5fa3e9ca466f7af22b51d5555b287202e179)
+set(UTILPP_TAG ada546cc3793a236316bdb5d31dd51945f9afe96)
 
 project(OFileBackup VERSION ${VERSION})
 enable_language(CXX ASM C)
@@ -81,20 +81,9 @@ ImportProject(absl ${STATIC_CRT} STATIC ${SSH} TAG 20260107.1)
 ImportProject(libuv ${STATIC_CRT} ${SSH} FIND TAG v1.52.0)
 ImportProject(zstd ${STATIC_CRT} ${SSH} FIND TAG v1.5.7)
 ImportProject(xxHash STATIC ${STATIC_CRT} ${SSH} FIND TAG v0.8.3)
-ImportTarget(rollinghashcpp ${SSH} TAG master)
 ImportProject(concurrentqueue ${SSH} TAG master)
 ImportProject(Glob ${SSH} TAG master)
-
-set(TF_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(TF_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(TF_BUILD_PROFILER OFF CACHE BOOL "" FORCE)
-set(TF_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
-FetchContent_Declare(
-  taskflow
-  GIT_REPOSITORY https://github.com/taskflow/taskflow.git
-  GIT_TAG v4.0.0
-)
-FetchContent_MakeAvailable(taskflow)
+ImportProject(taskflow ${SSH} TAG v4.0.0)
 
 set(UTILPP_WITH_STATIC_LIBUV OFF CACHE BOOL "" FORCE)
 set(UTILPP_STATIC_CRT ${OFB_STATIC_CRT} CACHE BOOL "" FORCE)
@@ -116,12 +105,7 @@ if(OFB_BUILD_TEST)
 endif()
 
 if(NOT OFB_ONLY_LIB)
-  FetchContent_Declare(
-    cxxopts
-    GIT_REPOSITORY https://github.com/jarro2783/cxxopts.git
-    GIT_TAG v3.3.1
-  )
-  FetchContent_MakeAvailable(cxxopts)
+  ImportProject(cxxopts TAG v3.3.1)
 
   add_subdirectory(src/BackupFolder)
   add_subdirectory(src/CompareManifest)

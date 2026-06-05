@@ -149,7 +149,6 @@ void FFileBackupManagerGatherAll::GenFolderChunkDataTask(this FFileBackupManager
     RollingAdler32.Reset();
     auto& hasher = RollingAdler32;
 
-
     auto tryCacheFunc = [&]() {
         auto WeakHash = hasher.Get();
         bool bWeakExist{ false };

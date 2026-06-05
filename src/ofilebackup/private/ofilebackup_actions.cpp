@@ -8,6 +8,7 @@
 #include <dir_util.h>
 #include <char_buffer_extension.h>
 
+#include <assert.h>
 #include <filesystem>
 #include <numeric>
 #include <queue>
@@ -327,7 +328,7 @@ EFileBackupError recover_folder(std::u8string_view workPathStr, std::u8string_vi
             case EFolderRecoverStatus::FRS_FinishWork: {
                 auto IDopt = TaskCounter.GetFreeSlot();
                 if (!IDopt.has_value()) {
-                    return EFileBackupError::FBE_INTERNAL_ERROR;
+                    assert(false);
                 }
                 auto i = *IDopt;
                 auto task = FolderRecoverHelper.GetFinishRecoverTask(recoverHandle);

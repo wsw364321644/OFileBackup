@@ -41,7 +41,7 @@ typedef struct FileChunkDataLess_t {
 
 typedef struct FileChunksData_t {
     typedef std::set<std::shared_ptr<FileChunkData_t>, FileChunkDataLess_t, allocator_save_memory_operator<std::shared_ptr<FileChunkData_t>>> TFileChunks;
-    string_save_memory_operator FileName;
+    save_memory_operator_string FileName;
     char FileHash[FileHashLen + 1]{0};
     uint64_t FileSize;
     TFileChunks Chunks;
