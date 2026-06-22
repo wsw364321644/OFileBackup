@@ -62,6 +62,7 @@ void IFileBackupManagerBase::CancelTask(CommonHandle32_t handle)
         return;
     }
     auto& pFolderWorkData = itr->second;
+    pFolderWorkData->StatusChangedDelegate = nullptr;
     pFolderWorkData->Status= EGenFolderMetaDataStatus::Finished;
     pFolderWorkData->EC= utilpp::make_common_used_error(utilpp::ECommonUsedError::CUE_CANCELED);
 }
@@ -93,6 +94,11 @@ void IFileBackupManagerBase::InitTask(CommonHandle32_t handle)
         }
         else {
             paths = glob::glob(GlobPath);
+        }
+        if (paths.size()==0) {
+            pFolderWorkData->Status = EGenFolderMetaDataStatus::Finished;
+            pFolderWorkData->EC = std::make_error_code(std::errc::invalid_argument);
+            return;
         }
         for (auto& p : paths) {
             auto pFileChunksData = std::make_shared<FileChunksData_t>();
