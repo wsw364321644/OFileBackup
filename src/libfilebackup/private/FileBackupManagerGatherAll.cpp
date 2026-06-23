@@ -68,7 +68,7 @@ std::tuple<IFileBackupManagerInterface::TOneFileChunkDataTask, IFileBackupManage
         pFileTaskData->NewFileChunkDelegate = NewFileChunkDelegate;
 
         pFileTaskData->FileAllHashMap = pFolderWorkData->AllHashMap;
-        auto& filePath = pFolderWorkData->FileLocalPathMap[ConvertViewToU8View(pFileTaskData->FileChunksData->FileName)];
+        std::filesystem::path filePath = ConvertViewToU8View(pFolderWorkData->FileLocalPathMap[ConvertViewToU8View(pFileTaskData->FileChunksData->FileName)]);
         pFileTaskData->FileStream = std::ifstream(filePath, std::ios::binary);
         if (!pFileTaskData->FileStream.is_open()) {
             return { nullptr,nullptr,nullptr };
