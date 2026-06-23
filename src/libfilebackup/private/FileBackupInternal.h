@@ -156,6 +156,7 @@ typedef struct GenFolderChunkDataWorkData_t {
     std::atomic<EGenFolderMetaDataStatus> Status{ EGenFolderMetaDataStatus::None };
     EGenFolderMetaDataStatus LastStatus{ EGenFolderMetaDataStatus::None };
     IFileBackupManagerInterface::TGenFolderMetaDataStatusChangedDelegate StatusChangedDelegate;
+    //IFileBackupManagerInterface::TGenFolderMetaDataCanceledDelegate CanceledDelegate;
 
     GenFolderChunkParams_t Params;
     uint64_t ToltalSize{ 0 };
@@ -169,6 +170,7 @@ typedef struct GenFolderChunkDataWorkData_t {
     std::unordered_map<std::u8string_view, std::shared_ptr<GenFolderChunkDataFileTaskData_t>> FileTasks;
     std::vector<std::shared_ptr<GenFolderChunkDataFileTaskData_t>> FileTaskPool;
 
+    std::atomic_bool bRequestExit{ false };
     FolderManifest_t FolderManifest;
     std::shared_ptr<GenFolderMetaDataProcess_t> OutProcess;
     std::shared_ptr<FolderManifest_t> OutFolderManifest;

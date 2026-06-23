@@ -182,7 +182,9 @@ void FFileBackupManagerGatherAll::GenFolderChunkDataTask(this FFileBackupManager
             pFileTaskData->FileChunksData->Chunks.emplace(pChunkData);
 
             if (!bStrongExist) {
-                pFileTaskData->NewFileChunkDelegate(&pFileTaskData->ChunkConverter, { (const char8_t*)ChunkData.HexName, bin_to_hex_length(sizeof(WeakHash_t)) + bin_to_hex_length(sizeof(output)) }, { (const char*)rawData, FileChunkSize });
+                if (!pFolderWorkData->bRequestExit) {
+                    pFileTaskData->NewFileChunkDelegate(&pFileTaskData->ChunkConverter, { (const char8_t*)ChunkData.HexName, bin_to_hex_length(sizeof(WeakHash_t)) + bin_to_hex_length(sizeof(output)) }, { (const char*)rawData, FileChunkSize });
+                }
             }
             pFolderWorkData->CompleteSize.fetch_add(consumedBytes>pFileTaskData->FileChunksData->FileSize? pFileTaskData->FileChunksData->FileSize- lastChunkEndPos : FileChunkSize);
 
@@ -206,6 +208,9 @@ void FFileBackupManagerGatherAll::GenFolderChunkDataTask(this FFileBackupManager
 
 
     while (true) {
+        if (pFolderWorkData->bRequestExit) {
+            break;
+        }
         if (pFileTaskData->bEOF) {
             if (FileChunkBuf.ContentSize.load() == 0) {
                 assert(consumedBytes >= pFileTaskData->FileChunksData->FileSize);

@@ -64,6 +64,7 @@ void IFileBackupManagerBase::CancelTask(CommonHandle32_t handle)
     auto& pFolderWorkData = itr->second;
     pFolderWorkData->StatusChangedDelegate = nullptr;
     pFolderWorkData->Status= EGenFolderMetaDataStatus::Finished;
+    pFolderWorkData->bRequestExit = true;
     pFolderWorkData->EC= utilpp::make_common_used_error(utilpp::ECommonUsedError::CUE_CANCELED);
 }
 
@@ -194,7 +195,9 @@ void IFileBackupManagerBase::Tick(float delta)
     std::set<CommonHandle32_t> needDel;
     for (auto& [handle, pFolderWorkData] : GenFolderMetaDataWorkDataList) {
         if (pFolderWorkData->Status != pFolderWorkData->LastStatus) {
-            pFolderWorkData->StatusChangedDelegate(pFolderWorkData->Status, pFolderWorkData->EC);
+            if (pFolderWorkData->StatusChangedDelegate) {
+                pFolderWorkData->StatusChangedDelegate(pFolderWorkData->Status, pFolderWorkData->EC);
+            }
             pFolderWorkData->LastStatus = pFolderWorkData->Status;
         }
         switch (pFolderWorkData->Status) {

@@ -46,6 +46,8 @@ public:
     typedef std::function<void(EGenFolderMetaDataStatus,std::error_code&)> TGenFolderMetaDataStatusChangedDelegate;
     virtual CommonHandle32_t GenFolderChunkData(const char8_t* path, TGenFolderMetaDataStatusChangedDelegate Delegate) = 0;
     virtual CommonHandle32_t GenFolderChunkData(GenFolderChunkParams_t& params, TGenFolderMetaDataStatusChangedDelegate Delegate) = 0;
+
+    typedef std::function<void(std::error_code&)> TGenFolderMetaDataCanceledDelegate;
     virtual void CancelTask(CommonHandle32_t handle) = 0;
     virtual void InitTask(CommonHandle32_t) = 0;
     typedef std::function<bool(char8_t*,uint32_t&)> TGetNextHashPairCB;

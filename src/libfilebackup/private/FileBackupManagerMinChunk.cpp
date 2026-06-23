@@ -201,7 +201,9 @@ void FFileBackupManagerMinChunk::GenFolderChunkDataTask(this FFileBackupManagerM
             ChunkData.HexName[sizeof(WeakHash_t) * 2 + sizeof(chunkCache.StrongHash) * 2] = 0;
             pFileTaskData->FileChunksData->Chunks.emplace(pChunkData);
             if (!chunkCache.fChunkAlreadyExist) {
-                pFileTaskData->NewFileChunkDelegate(&pFileTaskData->ChunkConverter, { (const char8_t*)ChunkData.HexName, uint32_t(sizeof(chunkCache.WeakHash) * 2 + sizeof(chunkCache.StrongHash) * 2) }, { (const char*)rawData, FileChunkSize });
+                if (!pFolderWorkData->bRequestExit) {
+                    pFileTaskData->NewFileChunkDelegate(&pFileTaskData->ChunkConverter, { (const char8_t*)ChunkData.HexName, uint32_t(sizeof(chunkCache.WeakHash) * 2 + sizeof(chunkCache.StrongHash) * 2) }, { (const char*)rawData, FileChunkSize });
+                }
             }
 
         }
@@ -280,7 +282,9 @@ void FFileBackupManagerMinChunk::GenFolderChunkDataTask(this FFileBackupManagerM
         processChunkChacheFunc();
         };
     while (true) {
-
+        if (pFolderWorkData->bRequestExit) {
+            break;
+        }
         if (pFileTaskData->bEOF) {
             if (FileChunkBuf.ContentSize.load() == 0) {
                 assert((pFileTaskData->FileChunksData->FileSize > 0 && pFileTaskData->FileChunksData->Chunks.size() > 0) || pFileTaskData->FileChunksData->FileSize == 0);
