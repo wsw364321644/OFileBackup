@@ -28,7 +28,7 @@ CommonHandle32_t IFileBackupManagerBase::GenFolderChunkData(const char8_t* path,
         return NullHandle;
     }
     auto& GenFolderMetaDataWorkData = pair->second;
-    auto fileMapping=GenFolderMetaDataWorkData->Params.FileMappings.emplace_back();
+    auto& fileMapping=GenFolderMetaDataWorkData->Params.FileMappings.emplace_back();
     fileMapping.RootPath = ConvertU8ViewToView(path);
     fileMapping.RelativeGlobPath = "*";
     fileMapping.bRecursive = true;
@@ -77,7 +77,7 @@ void IFileBackupManagerBase::InitTask(CommonHandle32_t handle)
     auto& pFolderWorkData = itr->second;
     if (pFolderWorkData->Status != EGenFolderMetaDataStatus::None) {
         pFolderWorkData->Status = EGenFolderMetaDataStatus::Finished;
-        pFolderWorkData->EC = utilpp::make_common_used_error(utilpp::ECommonUsedError::CUE_REQ_TOO_MANY);
+        pFolderWorkData->EC = utilpp::make_common_used_error(utilpp::ECommonUsedError::CUE_DUPLICATE_CALL);
         return;
     }
     std::vector<std::filesystem::path> paths;

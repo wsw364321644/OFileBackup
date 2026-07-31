@@ -1,5 +1,8 @@
 #pragma once
+#include "FileBackupCommon.h"
+#include "FileBackupExportDef.h"
 
+#include <FileBackedBuffer.h>
 #include <handle.h>
 #include <variant>
 #include <optional>
@@ -7,8 +10,7 @@
 #include <climits>
 #include <simple_uuid.h>
 #include <hex.h>
-#include "FileBackupExportDef.h"
-#include "FileBackupCommon.h"
+
 
 
 class FolderRecoverProgress {
@@ -19,8 +21,8 @@ public:
     typedef struct FolderRecoverProgressHeader_t {
         //uint32_t AllDeleteFileNum{ 0 };
         uint32_t AllFileChunkNum{ 0 };
-        uint32_t CompleteFileChunkCount{ 0 };
         uint32_t AllFileNum{ 0 };
+        uint32_t CompleteFileChunkCount{ 0 };
         uint32_t CompleteFileCount{ 0 };
         //uint32_t FileNameTableOffset{ 0 };
         uint32_t FileChunkStatusTableOffset{ 0 };
@@ -43,50 +45,40 @@ public:
     }FolderRecoverFileProgress_t;
 
 #pragma pack(pop) 
-    FolderRecoverProgressHeader_t& GetFolderRecoverProgressHeader() {
-        auto& data = CharBuf.Data();
-        return *(FolderRecoverProgressHeader_t*)data;
+    const FolderRecoverProgressHeader_t& GetFolderRecoverProgressHeader()const {
+        return FileBackedBuffer->GetData<FolderRecoverProgressHeader_t>(0);
     }
 
-    //FolderDeleteFileHeader_t& GetDeleteFileHeader(uint32_t index) {
-    //    auto& data = CharBuf.Data();
-    //    return *(FolderDeleteFileHeader_t*)((char*)data + sizeof(FolderRecoverProgressHeader_t) + index * sizeof(FolderDeleteFileHeader_t));
-    //}
-
-    //FolderRecoverFileProgressHeader_t& GetFileProgressHeader(uint32_t index) {
-    //    auto& data = CharBuf.Data();
-    //    return *(FolderRecoverFileProgressHeader_t*)((char*)&GetDeleteFileHeader(GetFolderRecoverProgressHeader().AllDeleteFileNum) + index * sizeof(FolderRecoverFileProgressHeader_t));
-    //}
-    FolderRecoverFileProgressHeader_t& GetFileProgressHeader(uint32_t index) {
-        auto& data = CharBuf.Data();
-        return *(FolderRecoverFileProgressHeader_t*)((char*)data + sizeof(FolderRecoverProgressHeader_t) + index * sizeof(FolderRecoverFileProgressHeader_t));
+    const FolderRecoverFileProgressHeader_t& GetFileProgressHeader(uint32_t index)const {
+        return FileBackedBuffer->GetData<FolderRecoverFileProgressHeader_t>(sizeof(FolderRecoverProgressHeader_t) + index * sizeof(FolderRecoverFileProgressHeader_t));
     }
 
-    //std::basic_string_view<FlieNameChType> GetFileName(FolderDeleteFileHeader_t& FileHeader) {
-    //    auto& data = CharBuf.Data();
-    //    return { (char*)data + GetFolderRecoverProgressHeader().FileNameTableOffset + FileHeader.FileNameOffset,FileHeader.FileNameLen };
-    //}
-    //std::basic_string_view<FlieNameChType> GetFileName(FolderRecoverFileProgressHeader_t& FileProgressHeader) {
-    //    auto& data = CharBuf.Data();
-    //    return { (char*)data + GetFolderRecoverProgressHeader().FileNameTableOffset + FileProgressHeader.FileNameOffset,FileProgressHeader.FileNameLen };
-    //}
-
-
-    bool GetFileChunkStatus(FolderRecoverFileProgressHeader_t& FileProgressHeader, uint32_t index) {
-        auto& data = CharBuf.Data();
-        auto res = std::div(index + FileProgressHeader.FileChunkStatusBitOffset, CHAR_BIT);
-        auto& targetByte = *((char*)data + GetFolderRecoverProgressHeader().FileChunkStatusTableOffset + FileProgressHeader.FileChunkStatusByteOffset + res.quot);
-        return targetByte & (uint8_t(1) << res.rem);
-    }
-    void SetFileChunkStatus(FolderRecoverFileProgressHeader_t& FileProgressHeader, uint32_t index) {
-        auto& data = CharBuf.Data();
+    bool GetFileChunkStatus(const FolderRecoverFileProgressHeader_t& FileProgressHeader, uint32_t index) const {
         auto divRes = std::div(index + FileProgressHeader.FileChunkStatusBitOffset, CHAR_BIT);
-        auto& targetByte = *((char*)data + GetFolderRecoverProgressHeader().FileChunkStatusTableOffset + FileProgressHeader.FileChunkStatusByteOffset + divRes.quot);
-        targetByte |= (uint8_t(1) << divRes.rem);
+        auto& targetByte = FileBackedBuffer->GetData <uint8_t>(GetFolderRecoverProgressHeader().FileChunkStatusTableOffset + FileProgressHeader.FileChunkStatusByteOffset + divRes.quot);
+        return targetByte & (uint8_t(1) << divRes.rem);
     }
 
-    virtual void Init(std::shared_ptr < const  FolderManifest_t> targetManifest, std::shared_ptr<const FolderManifest_t> source) = 0;
-    FCharBuffer CharBuf;
+    void SetFileChunkStatus(const FolderRecoverFileProgressHeader_t& FileProgressHeader, uint32_t index) {
+        auto divRes = std::div(index + FileProgressHeader.FileChunkStatusBitOffset, CHAR_BIT);
+        auto& targetByte = FileBackedBuffer->GetData <uint8_t>(GetFolderRecoverProgressHeader().FileChunkStatusTableOffset + FileProgressHeader.FileChunkStatusByteOffset + divRes.quot);
+        auto newByte = targetByte;
+        newByte |= (uint8_t(1) << divRes.rem);
+        FileBackedBuffer->WriteData((void*)&targetByte, newByte);
+    }
+
+    void AddCompleteFileCount() {
+        auto& header = GetFolderRecoverProgressHeader();
+        FileBackedBuffer->WriteData(offsetof(FolderRecoverProgressHeader_t, CompleteFileCount), header.CompleteFileCount + 1);
+    }
+    void AddCompleteFileChunkCount() {
+        auto& header = GetFolderRecoverProgressHeader();
+        FileBackedBuffer->WriteData(offsetof(FolderRecoverProgressHeader_t, CompleteFileChunkCount), header.CompleteFileChunkCount + 1);
+    }
+
+    IFileBackedBuffer* FileBackedBuffer;
+    std::unordered_set<std::u8string_view, string_hash>NeedRecoverMissingFileChunks;
+    std::unordered_set<std::u8string_view, string_hash>NeedRecoverSourceFileChunks;
     std::shared_ptr <const FolderManifestCompareResult_t> CompareResult;
 };
 
@@ -100,7 +92,7 @@ enum class EFolderRecoverStatus
 
 class  IFolderRecoverHelperInterface {
 public:
-    typedef std::function<void(EFolderRecoverStatus,std::error_code&)> TRecoverFoldeStatusChangedDelegate;
+    typedef std::function<void(EFolderRecoverStatus,const std::error_code)> TRecoverFoldeStatusChangedDelegate;
     virtual CommonHandle32_t AddTask(std::shared_ptr <const FolderManifest_t> manifest, std::shared_ptr <const FolderManifest_t> sourceManifest,std::u8string_view workDirStr, std::u8string_view chunkDirStr, std::u8string_view tempDirStr, TRecoverFoldeStatusChangedDelegate delegate) = 0;
     virtual std::optional<std::reference_wrapper<FolderRecoverProgress>> GetFolderRecoverProcess(CommonHandle32_t handle) = 0;
 
@@ -114,10 +106,11 @@ public:
     typedef std::function<void()> TOneChunkRecoverPostProcessingTask;
 
     virtual std::tuple<TOneFileRecoverTask, TOneFileRecoverPostProcessingTask> GetNextRecoverFileTask(CommonHandle32_t) = 0;
-    virtual TRecoverTask GetRecoverBySourceTask(CommonHandle32_t) = 0;
-    virtual TOneChunkRecoverTask GetRecoverByChunkTask(CommonHandle32_t, std::u8string_view) = 0;
-    virtual IFolderRecoverHelperInterface::TFinishRecoverTask GetFinishRecoverTask(CommonHandle32_t) = 0;
+    //virtual TRecoverTask GetRecoverBySourceTask(CommonHandle32_t) = 0;
+    virtual TOneChunkRecoverTask GetRecoverByChunkTask(CommonHandle32_t, std::u8string_view,bool bFromSource=false) = 0;
+    //virtual TFinishRecoverTask GetFinishRecoverTask(CommonHandle32_t) = 0;
     virtual void Tick(float delta) = 0;
+    virtual void IOTick(float delta) = 0;
 
 };
 

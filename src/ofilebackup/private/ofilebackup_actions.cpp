@@ -7,6 +7,7 @@
 #include <FunctionExitHelper.h>
 #include <dir_util.h>
 #include <char_buffer_extension.h>
+#include <FunctionExitHelper.h>
 
 #include <assert.h>
 #include <filesystem>
@@ -55,6 +56,7 @@ std::tuple< bool, std::shared_ptr<const FolderManifest_t>> gen_folder_manifest_b
     if (!bAddHashRes) {
         return { false ,nullptr };
     }
+    FileBackupManager->InitTask(workHandle);
     std::filesystem::path chunkOutPath(chunkOutPathStr);
     if (!chunkOutPathStr.empty() && !std::filesystem::exists(chunkOutPath, ec)) {
         std::filesystem::create_directories(chunkOutPath);
@@ -147,7 +149,7 @@ bool gen_folder_manifest_action(std::u8string_view workPathStr, std::u8string_vi
                 if (entry.bDir) {
                     return true;
                 }
-                hexNameList.push_back((const char*)entry.Name);
+                hexNameList.push_back(entry.pPathBuf->FileName());
                 return true;
             },
             0);
@@ -245,8 +247,8 @@ EFileBackupError recover_folder(std::u8string_view workPathStr, std::u8string_vi
     std::shared_ptr<const FolderManifest_t> pManifest;
     std::shared_ptr<const FolderManifest_t> pSourceManifest;
     std::u8string tempPathStr8;
-    FCharBuffer&charBuf=*FCharBuffer::GetThreadSingleton();
-    FPathBuf &pathBuf=*FPathBuf::GetThreadSingleton();
+    FCharBuffer& charBuf = *FCharBuffer::GetThreadSingleton();
+    FPathBuf& pathBuf = *FPathBuf::GetThreadSingleton();
     pathBuf.SetPath(ConvertU8ViewToView(workPathStr));
     if (!DirUtil::IsExist(pathBuf)) {
         if (!DirUtil::CreateDir(pathBuf)) {
@@ -276,7 +278,7 @@ EFileBackupError recover_folder(std::u8string_view workPathStr, std::u8string_vi
     if (!LoadFileToCharBuffer(Manifest, charBuf)) {
         return EFileBackupError::FBE_FILE_OP_ERROR;
     }
-    pManifest = FolderManifest_t::from_string(charBuf,ec);
+    pManifest = FolderManifest_t::from_string(charBuf, ec);
     if (ec) {
         return EFileBackupError::FBE_PARAMS_ERROR;
     }
@@ -323,21 +325,8 @@ EFileBackupError recover_folder(std::u8string_view workPathStr, std::u8string_vi
 
     bool res{ true };
     CommonHandle32_t recoverHandle = FolderRecoverHelper.AddTask(pManifest, pSourceManifest, workPathStr, chunkPathStr, tempPathStr
-        , [&](EFolderRecoverStatus status, std::error_code& ec) {
+        , [&](EFolderRecoverStatus status, const std::error_code ec) {
             switch (status) {
-            case EFolderRecoverStatus::FRS_FinishWork: {
-                auto IDopt = TaskCounter.GetFreeSlot();
-                if (!IDopt.has_value()) {
-                    assert(false);
-                }
-                auto i = *IDopt;
-                auto task = FolderRecoverHelper.GetFinishRecoverTask(recoverHandle);
-                if (task) {
-                    auto [newhandle, newf] = GetTaskManagerSingleton()->AddTask(taskDataList[i].WorkflowHandle, task);
-                    TaskCounter.SetFuture(i, newhandle, newf);
-                }
-                break;
-            }
             case EFolderRecoverStatus::FRS_Finished: {
                 bExit = true;
                 if (ec) {
@@ -357,19 +346,30 @@ EFileBackupError recover_folder(std::u8string_view workPathStr, std::u8string_vi
         return EFileBackupError::FBE_INTERNAL_ERROR;
     }
     auto& progress = processOpt.value().get();
-    auto needChunks = progress.CompareResult->MissingFileChunks;
+    std::unordered_set < std::u8string_view, string_hash, std::equal_to<>> needMissingChunks;
+    std::unordered_set < std::u8string_view, string_hash, std::equal_to<>> needSourceChunks;
 
+    for (auto& [fileName, FileConstructChunks] : progress.CompareResult->FileConstructChunks) {
+        for (auto& pFileConstructChunkData : FileConstructChunks) {
+            if (pFileConstructChunkData->bFromSource) {
+                needSourceChunks.emplace(GetHexNameView( pFileConstructChunkData->ChunkData->HexName));
+            }
+            else {
+                needMissingChunks.emplace(GetHexNameView(pFileConstructChunkData->ChunkData->HexName));
+            }
+        }
+    }
     //init GetRecoverBySourceTask
     auto IDopt = TaskCounter.GetFreeSlot();
     if (!IDopt.has_value()) {
         return EFileBackupError::FBE_INTERNAL_ERROR;
     }
-    auto i = *IDopt;
-    auto task = FolderRecoverHelper.GetRecoverBySourceTask(recoverHandle);
-    if (task) {
-        auto [newhandle, newf] = GetTaskManagerSingleton()->AddTask(taskDataList[i].WorkflowHandle, task);
-        TaskCounter.SetFuture(i, newhandle, newf);
-    }
+    //auto i = *IDopt;
+    //auto task = FolderRecoverHelper.GetRecoverBySourceTask(recoverHandle);
+    //if (task) {
+    //    auto [newhandle, newf] = GetTaskManagerSingleton()->AddTask(taskDataList[i].WorkflowHandle, task);
+    //    TaskCounter.SetFuture(i, newhandle, newf);
+    //}
 
     //init GetRecoverByChunkTask
     tickHandle = GetTaskManagerSingleton()->AddTick(GetTaskManagerSingleton()->GetMainThread(),
@@ -391,27 +391,47 @@ EFileBackupError recover_folder(std::u8string_view workPathStr, std::u8string_vi
                     taskDataList[slot.ID].PostTask();
                 }
             }
-            if (needChunks.size() == 0) {
-                return;
-            }
+            bool bFromSource;
 
-            auto IDopt = TaskCounter.GetFreeSlot();
-            if (IDopt.has_value()) {
-
-                auto chunkItr = needChunks.begin();
-                auto chunkName = *chunkItr;
-                needChunks.erase(chunkItr);
+            auto func = [&TaskCounter, &recoverHandle, &FolderRecoverHelper, &taskDataList](std::u8string_view chunkName) {
+                auto IDopt = TaskCounter.GetFreeSlot();
+                if (!IDopt.has_value()) {
+                    return false;
+                }
 
                 auto i = *IDopt;
                 auto task = FolderRecoverHelper.GetRecoverByChunkTask(recoverHandle, chunkName);
                 if (task) {
                     auto [newhandle, newf] = GetTaskManagerSingleton()->AddTask(taskDataList[i].WorkflowHandle, task);
                     TaskCounter.SetFuture(i, newhandle, newf);
+                }else{
+                    return false;
+                }
+                return true;
+                };
+            if (needSourceChunks.size() >0 ) {
+                auto itr = needSourceChunks.begin();
+                auto bres=func(*itr);
+                if (bres) {
+                    needSourceChunks.erase(itr);
+                }
+
+            }
+            else if (needMissingChunks.size() > 0) {
+                auto itr = needMissingChunks.begin();
+                auto bres = func(*itr);
+                if (bres) {
+                    needMissingChunks.erase(itr);
                 }
             }
-
         }
     );
+    auto ioHandle = GetTaskManagerSingleton()->NewWorkflow();
+    GetTaskManagerSingleton()->AddTick(ioHandle, [&](float delta) {
+        FolderRecoverHelper.IOTick(delta);
+        }
+    );
+
     FunctionExitHelper_t ExitHelper(
         [&]() {
             for (auto& taskData : taskDataList)

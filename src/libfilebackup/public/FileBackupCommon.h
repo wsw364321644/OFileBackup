@@ -79,10 +79,15 @@ public:
 };
 LIB_FILEBACKUP_EXPORT std::shared_ptr<IChunkConverter> NewChunkConverter();
 
+typedef struct ChunkWithFile_t {
+    std::shared_ptr<FileChunksData_t> File;
+    std::shared_ptr<FileChunkData_t> Chunk;
+}ChunkWithFile_t;
 
 typedef struct ChunkReverseCheckData_t {
     std::vector<std::pair<std::shared_ptr<FileChunksData_t>, std::shared_ptr<FileChunkData_t>>, allocator_save_memory_operator<std::pair<std::shared_ptr<FileChunksData_t>, std::shared_ptr<FileChunkData_t>>>> ChunkInFileData;
 }ChunkReverseCheckData_t;
+
 
 typedef struct FileConstructChunkData_t {
     std::shared_ptr<FileChunkData_t> ChunkData;
@@ -99,12 +104,13 @@ typedef struct FileConstructChunkDataLess_t {
 }FileConstructChunkDataLess_t;
 typedef std::set<std::shared_ptr<FileConstructChunkData_t>, FileConstructChunkDataLess_t, allocator_save_memory_operator<std::shared_ptr<FileConstructChunkData_t>>> TFileConstructChunks;
 
+typedef std::unordered_map<std::u8string_view, FileChunksData_t::TFileChunks, string_hash, std::equal_to<>, allocator_save_memory_operator<std::pair<const std::u8string_view, FileChunksData_t::TFileChunks>>> TFileChunkMap;
 
 typedef struct FolderManifestCompareResult_t {
     std::unordered_set<std::u8string_view, string_hash, std::equal_to<>, allocator_save_memory_operator<std::u8string_view>> MissingFileChunks;
     std::unordered_set<std::u8string_view, string_hash, std::equal_to<>, allocator_save_memory_operator<std::u8string_view>> FilesNeedDelete;
-    std::unordered_map<std::u8string_view, ChunkReverseCheckData_t, string_hash, std::equal_to<>, allocator_save_memory_operator<std::pair<const std::u8string_view, ChunkReverseCheckData_t>>> SourceChunkReverseIndex;
-    std::unordered_map<std::u8string_view, ChunkReverseCheckData_t, string_hash, std::equal_to<>, allocator_save_memory_operator<std::pair<const std::u8string_view, ChunkReverseCheckData_t>>> TargetChunkReverseIndex;
+    std::unordered_map<std::u8string_view, TFileChunkMap, string_hash, std::equal_to<>, allocator_save_memory_operator<std::pair<const std::u8string_view, TFileChunkMap>>> SourceChunkReverseIndex;
+    std::unordered_map<std::u8string_view, TFileChunkMap, string_hash, std::equal_to<>, allocator_save_memory_operator<std::pair<const std::u8string_view, TFileChunkMap>>> TargetChunkReverseIndex;
     std::unordered_map<std::u8string_view, TFileConstructChunks, string_hash, std::equal_to<>, allocator_save_memory_operator<std::pair<const std::u8string_view, TFileConstructChunks>>> FileConstructChunks;
 }FolderManifestCompareResult_t;
 

@@ -1,30 +1,27 @@
 #include "FolderRecoverProgressImpl.h"
-
-void FolderRecoverProgressImpl::Init(std::shared_ptr < const  FolderManifest_t> pTargetManifest, std::shared_ptr<const FolderManifest_t> source)
+#include "FolderRecoverHelper.h"
+#include <dir_util.h>
+void FolderRecoverProgressImpl::Init(std::shared_ptr<FolderRecoverWorkData_t> workData, std::shared_ptr < const  FolderManifest_t> pTargetManifest, std::shared_ptr<const FolderManifest_t> source, std::error_code& ec)
 {
+    ec.clear();
     Manifest = pTargetManifest;
     SourceManifest= source;
+    if (!FileBackedBuffer) {
+        FileBackedBuffer = NewFileBackedBuffer();
+    }
 
     auto& targetManifest = *pTargetManifest;
     CompareResult =CompareFolderManifest(targetManifest, source);
-
+    auto& FolderRecoverWorkData = *workData;
     //init progress
-    std::unordered_map<std::u8string_view, std::shared_ptr<FileNeedRecoverData_t>> OrderedFiles;
+    std::map<std::u8string_view, std::shared_ptr<FileNeedRecoverData_t>> OrderedFiles;
     auto& folderManifestCompareResult = *CompareResult;
-    CharBuf.Resize(sizeof(FolderRecoverProgressHeader_t));
-    memset(&GetFolderRecoverProgressHeader(), 0, sizeof(FolderRecoverProgressHeader_t));
-    GetFolderRecoverProgressHeader().AllFileNum = folderManifestCompareResult.FileConstructChunks.size();
-    //GetFolderRecoverProgressHeader().AllDeleteFileNum = folderManifestCompareResult.FilesNeedDelete.size();
-    //GetFolderRecoverProgressHeader().FileNameTableOffset = GetFolderRecoverProgressHeader().FileChunkStatusTableOffset =
-    //    sizeof(FolderRecoverProgressHeader_t)
-    //    + GetFolderRecoverProgressHeader().AllDeleteFileNum * sizeof(FolderDeleteFileHeader_t)
-    //    + GetFolderRecoverProgressHeader().AllFileNum * sizeof(FolderRecoverFileProgressHeader_t);
-    GetFolderRecoverProgressHeader().FileChunkStatusTableOffset =
-        sizeof(FolderRecoverProgressHeader_t)
-        + GetFolderRecoverProgressHeader().AllFileNum * sizeof(FolderRecoverFileProgressHeader_t);
+    FolderRecoverProgressHeader_t FolderRecoverProgressHeader;
+    FolderRecoverProgressHeader.AllFileNum = folderManifestCompareResult.FileConstructChunks.size();
+    FolderRecoverProgressHeader.FileChunkStatusTableOffset =sizeof(FolderRecoverProgressHeader_t)
+        + FolderRecoverProgressHeader.AllFileNum * sizeof(FolderRecoverFileProgressHeader_t);
     for (auto& [fileName, chunks] : folderManifestCompareResult.FileConstructChunks) {
-        //GetFolderRecoverProgressHeader().FileChunkStatusTableOffset += fileName.size();
-        GetFolderRecoverProgressHeader().AllFileChunkNum += chunks.size();
+        FolderRecoverProgressHeader.AllFileChunkNum += chunks.size();
 
         //init ram data for construct file
         auto pFileNeedRecoverData = std::make_shared<FileNeedRecoverData_t>();
@@ -38,34 +35,81 @@ void FolderRecoverProgressImpl::Init(std::shared_ptr < const  FolderManifest_t> 
         for (auto& NeedRecoverChunk : pFileNeedRecoverData->NeedRecoverChunks) {
             NeedRecoverChunk->Index = i++;
         }
+        FilesNeedRecover.try_emplace(fileName, pFileNeedRecoverData);
         OrderedFiles.try_emplace(fileName, pFileNeedRecoverData);
     }
-    memcpy(GetFolderRecoverProgressHeader().TargetID, targetManifest.ID, sizeof(GetFolderRecoverProgressHeader().TargetID));
+    memcpy(FolderRecoverProgressHeader.TargetID, targetManifest.ID, sizeof(GetFolderRecoverProgressHeader().TargetID));
     if (source) {
-        memcpy(GetFolderRecoverProgressHeader().SourceID, source->ID, sizeof(GetFolderRecoverProgressHeader().SourceID));
+        memcpy(FolderRecoverProgressHeader.SourceID, source->ID, sizeof(GetFolderRecoverProgressHeader().SourceID));
     }
-    auto divRes = std::div(GetFolderRecoverProgressHeader().AllFileChunkNum, CHAR_BIT);
-    CharBuf.Resize(GetFolderRecoverProgressHeader().FileChunkStatusTableOffset + divRes.quot + (divRes.rem > 0 ? 1 : 0));
-    memset(CharBuf.Data() + GetFolderRecoverProgressHeader().FileChunkStatusTableOffset, 0, divRes.quot + (divRes.rem > 0 ? 1 : 0));
+    FolderRecoverProgressHeader.bTempFolderExist = DirUtil::IsExist(FolderRecoverWorkData.TempFolder.u8string());
 
-    uint32_t FileNameOffsetCounr{ 0 };
-    uint32_t FileChunkBitCount{ 0 };
-    uint32_t FileChunkByteCount{ 0 };
-
+    auto fileName = FolderRecoverWorkData.WorkFolder.filename();
+    fileName.replace_extension("rcv");
+    auto filePath = FolderRecoverWorkData.TempFolder.parent_path() / fileName;
+    auto divRes = std::div(FolderRecoverProgressHeader.AllFileChunkNum, CHAR_BIT);
+    auto bres=FileBackedBuffer->Init(FolderRecoverProgressHeader.FileChunkStatusTableOffset + divRes.quot + (divRes.rem > 0 ? 1 : 0), filePath.u8string(),ec);
+    if (!bres) {
+        return;
+    }
     auto i = 0;
-    for (auto& [fileName, pFileInfo] : OrderedFiles ) {
-        pFileInfo->Index = i++;
-        FilesNeedRecover.try_emplace(fileName, pFileInfo);
-        auto& fileInfo = *pFileInfo;
-        GetFileProgressHeader(fileInfo.Index).ChunkNum = fileInfo.NeedRecoverChunks.size();
-        //GetFileProgressHeader(fileInfo.Index).FileNameLen = fileInfo.FileData->FileName.size();
-        //GetFileProgressHeader(fileInfo.Index).FileNameOffset = FileNameOffsetCounr;
-        GetFileProgressHeader(fileInfo.Index).FileChunkStatusByteOffset = FileChunkByteCount;
-        GetFileProgressHeader(fileInfo.Index).FileChunkStatusBitOffset = FileChunkBitCount;
-        FileNameOffsetCounr += fileInfo.FileData->FileName.size();
-        divRes = std::div(fileInfo.NeedRecoverChunks.size() + FileChunkBitCount, CHAR_BIT);
-        FileChunkByteCount += divRes.quot;
-        FileChunkBitCount = divRes.rem;
-        //memcpy(CharBuf.Data() + GetFolderRecoverProgressHeader().FileNameTableOffset + GetFileProgressHeader(fileInfo.Index).FileNameOffset, fileInfo.FileData->FileName.data(), fileInfo.FileData->FileName.size());
+    /// old data exist
+    if (ec) {
+        ec.clear();
+        for (auto& [fileName, pFileInfo] : OrderedFiles) {
+            auto& fileInfo = *pFileInfo;
+            fileInfo.Index = i++;
+            auto& fileProgress=GetFileProgressHeader(fileInfo.Index);
+            for (auto itr = fileInfo.NeedRecoverChunks.begin(); itr != fileInfo.NeedRecoverChunks.end(); ) {
+                auto& ChunksRecoverData = *itr;
+                if (GetFileChunkStatus(fileProgress, ChunksRecoverData->Index)) {
+                    itr = fileInfo.NeedRecoverChunks.erase(itr);
+                }
+                else {
+                    if (ChunksRecoverData->ConstructChunkData->bFromSource) {
+                        NeedRecoverSourceFileChunks.emplace(GetHexNameView(ChunksRecoverData->ConstructChunkData->ChunkData->HexName));
+                    }
+                    else {
+                        NeedRecoverMissingFileChunks.emplace(GetHexNameView(ChunksRecoverData->ConstructChunkData->ChunkData->HexName));
+                    }
+                    itr++;
+                }
+            }
+            if (fileInfo.NeedRecoverChunks.size() == 0) {
+                FilesNeedRecover.erase(fileName);
+            }
+        }
+    }
+    /// gen new data
+    else {
+        FileBackedBuffer->WriteData(0u, FolderRecoverProgressHeader);
+        uint32_t FileNameOffsetCounr{ 0 };
+        uint32_t FileChunkBitCount{ 0 };
+        uint32_t FileChunkByteCount{ 0 };
+        for (auto& [fileName, pFileInfo] : OrderedFiles) {
+            FolderRecoverFileProgressHeader_t FolderRecoverFileProgressHeader;
+            auto& fileInfo = *pFileInfo;
+            fileInfo.Index = i++;
+
+            FolderRecoverFileProgressHeader.ChunkNum = fileInfo.NeedRecoverChunks.size();
+            FolderRecoverFileProgressHeader.FileChunkStatusByteOffset = FileChunkByteCount;
+            FolderRecoverFileProgressHeader.FileChunkStatusBitOffset = FileChunkBitCount;
+
+            FileNameOffsetCounr += fileInfo.FileData->FileName.size();
+            divRes = std::div(fileInfo.NeedRecoverChunks.size() + FileChunkBitCount, CHAR_BIT);
+            FileChunkByteCount += divRes.quot;
+            FileChunkBitCount = divRes.rem;
+
+            FileBackedBuffer->WriteData(sizeof(FolderRecoverProgressHeader_t) + fileInfo.Index * sizeof(FolderRecoverFileProgressHeader_t), FolderRecoverFileProgressHeader);
+
+            for (auto& chunk : fileInfo.NeedRecoverChunks) {
+                if (chunk->ConstructChunkData->bFromSource) {
+                    NeedRecoverSourceFileChunks.emplace(GetHexNameView(chunk->ConstructChunkData->ChunkData->HexName));
+                }
+                else {
+                    NeedRecoverMissingFileChunks.emplace(GetHexNameView(chunk->ConstructChunkData->ChunkData->HexName));
+                }
+            }
+        }
     }
 }

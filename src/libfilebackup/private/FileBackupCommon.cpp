@@ -104,7 +104,7 @@ void FolderManifest_t::to_string( FCharBuffer& charBuf, std::error_code& ec) con
 std::shared_ptr<const FolderManifest_t> FolderManifest_t::from_string(FCharBuffer& str, std::error_code& ec)
 {
     ec.clear();
-    str.Reverse(str.Size() + simdjson::SIMDJSON_PADDING);
+    str.Reserve(str.Size() + simdjson::SIMDJSON_PADDING);
     auto out = std::make_shared<FolderManifest_t>();
     auto& manifest = *out;
     simdjson::ondemand::parser parser;
@@ -236,8 +236,9 @@ std::shared_ptr<const FolderManifestCompareResult_t> CompareFolderManifest(const
             for (auto& pFileChunk : FileChunksData->Chunks) {
                 auto& FileChunk = *pFileChunk;
 
-                auto res=out->SourceChunkReverseIndex.try_emplace(GetHexNameView( FileChunk.HexName));
-                res.first->second.ChunkInFileData.emplace_back( FileChunksData , pFileChunk);
+                auto res=out->SourceChunkReverseIndex.try_emplace(GetHexNameView(FileChunk.HexName));
+                auto fileEmplaceRes =res.first->second.try_emplace(pathstr);
+                fileEmplaceRes.first->second.emplace(pFileChunk);
             }
         }
     }
@@ -257,7 +258,8 @@ std::shared_ptr<const FolderManifestCompareResult_t> CompareFolderManifest(const
             all_target_chunks.push_back(chunk_ptr);
 
             auto res = out->TargetChunkReverseIndex.try_emplace(GetHexNameView(chunk_ptr->HexName));
-            res.first->second.ChunkInFileData.emplace_back(target_file_data, chunk_ptr);
+            auto fileEmplaceRes = res.first->second.try_emplace(target_filename);
+            fileEmplaceRes.first->second.emplace(chunk_ptr);
         }
 
         if (all_target_chunks.empty()) {
