@@ -21,6 +21,9 @@ void FolderRecoverProgressImpl::Init(std::shared_ptr<FolderRecoverWorkData_t> wo
     FolderRecoverProgressHeader.FileChunkStatusTableOffset =sizeof(FolderRecoverProgressHeader_t)
         + FolderRecoverProgressHeader.AllFileNum * sizeof(FolderRecoverFileProgressHeader_t);
     for (auto& [fileName, chunks] : folderManifestCompareResult.FileConstructChunks) {
+        if (chunks.size() <= 0) {
+            continue;
+        }
         FolderRecoverProgressHeader.AllFileChunkNum += chunks.size();
 
         //init ram data for construct file

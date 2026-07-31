@@ -47,7 +47,6 @@ public:
     std::shared_ptr <const FolderManifest_t> Manifest;
     std::shared_ptr <const FolderManifest_t> SourceManifest;
 
-
     TFilesNeedRecover FilesNeedRecover;
 };
 

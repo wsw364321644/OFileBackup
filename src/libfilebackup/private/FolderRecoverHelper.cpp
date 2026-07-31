@@ -338,6 +338,13 @@ void FFolderRecoverHelper::FinishRecoverTask(this FFolderRecoverHelper& self, st
         std::filesystem::path delPath = FolderRecoverWorkData.WorkFolder / fileName;
         DirUtil::Delete(delPath.u8string());
     }
+    for (auto& [fileName,chunks] : FolderRecoverWorkData.RecoverProcess.CompareResult->FileConstructChunks) {
+        if (chunks.size() == 0) {
+            std::filesystem::path createPath = FolderRecoverWorkData.WorkFolder / fileName;
+            FRawFile file;
+            file.Open(createPath.u8string(),UTIL_CREATE_ALWAYS,0);
+        }
+    }
     for (auto& [fileName,_] : FolderRecoverWorkData.RecoverProcess.CompareResult->FileConstructChunks) {
         std::filesystem::path tempFilePath = FolderRecoverWorkData.TempFolder / fileName;
         if (!DirUtil::IsExist(tempFilePath.u8string())) {
