@@ -4,6 +4,7 @@
 #include <FunctionExitHelper.h>
 #include <std_ext.h>
 #include <simple_error.h>
+#include <dir_util.h>
 
 #include <glob/glob.hpp>
 #include <xxhash.h>
@@ -91,7 +92,11 @@ void IFileBackupManagerBase::InitTask(CommonHandle32_t handle)
         }
         std::string GlobPath = ConvertU8ViewToString((std::filesystem::path(RootPath) / FileMapping.RelativeGlobPath).u8string());
         if (FileMapping.bRecursive) {
-            paths = glob::rglob(GlobPath);
+            std::filesystem::path tPath = GlobPath;
+            if (tPath.filename() == "*") {
+                tPath.replace_filename("**");
+            }
+            paths = glob::rglob(ConvertU8ViewToString( tPath.u8string()));
         }
         else {
             paths = glob::glob(GlobPath);
@@ -102,6 +107,9 @@ void IFileBackupManagerBase::InitTask(CommonHandle32_t handle)
             return;
         }
         for (auto& p : paths) {
+            if (DirUtil::IsDirectory(p.u8string())) {
+                continue;
+            }
             auto pFileChunksData = std::make_shared<FileChunksData_t>();
             pFileChunksData->FileSize = std::filesystem::file_size(p);
             pFileChunksData->FileName = ConvertU8ViewToView((std::filesystem::path(FileMapping.TargetRelativePath)/ p.lexically_relative(RootPath)).lexically_normal().u8string());
@@ -264,7 +272,9 @@ void IFileBackupManagerBase::GenFolderChunkDataReadFileTick(this IFileBackupMana
             FileChunkBuf.FillSize(fillSize);
             //lock.unlock();
         }
-        pFileTaskData->bEOF = true;
+        else {
+            pFileTaskData->bEOF = true;
+        }
     }
 }
 
