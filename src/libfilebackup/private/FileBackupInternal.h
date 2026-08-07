@@ -128,7 +128,7 @@ typedef struct GenFolderChunkDataFileTaskData_t {
     //both
     //std::shared_mutex FileChunkBufMtx;
     std::shared_ptr<FileChunkBuf_t> FileChunkBuf;//Guard by ContentSize
-    bool bEOF{ false };
+    std::atomic_bool bEOF{ false };
     //read thread
     std::ifstream FileStream;
     uint32_t WaitAppendDataLen{ 0 };
