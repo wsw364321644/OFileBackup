@@ -249,7 +249,7 @@ EFileBackupError recover_folder(std::u8string_view workPathStr, std::u8string_vi
     std::u8string tempPathStr8;
     FCharBuffer& charBuf = *FCharBuffer::GetThreadSingleton();
     FPathBuf& pathBuf = *FPathBuf::GetThreadSingleton();
-    pathBuf.SetPath(ConvertU8ViewToView(workPathStr));
+    pathBuf.SetPath(workPathStr);
     if (!DirUtil::IsExist(pathBuf)) {
         if (!DirUtil::CreateDir(pathBuf)) {
             return EFileBackupError::FBE_FILE_NOT_EXIST;
@@ -268,7 +268,7 @@ EFileBackupError recover_folder(std::u8string_view workPathStr, std::u8string_vi
         tempPathStr = tempPathStr8;
     }
 
-    pathBuf.SetPath(ConvertU8ViewToView(manifestFilePathStr));
+    pathBuf.SetPath(manifestFilePathStr);
     if (!DirUtil::IsExist(pathBuf) || DirUtil::IsDirectory(pathBuf)) {
         return EFileBackupError::FBE_FILE_NOT_EXIST;
     }
@@ -284,7 +284,7 @@ EFileBackupError recover_folder(std::u8string_view workPathStr, std::u8string_vi
     }
 
     if (!sourceManifestFilePathStr.empty()) {
-        pathBuf.SetPath(ConvertU8ViewToView(sourceManifestFilePathStr));
+        pathBuf.SetPath(sourceManifestFilePathStr);
         if (!DirUtil::IsExist(pathBuf) || DirUtil::IsDirectory(pathBuf)) {
             return EFileBackupError::FBE_FILE_NOT_EXIST;
         }
@@ -300,7 +300,7 @@ EFileBackupError recover_folder(std::u8string_view workPathStr, std::u8string_vi
         }
     }
 
-    pathBuf.SetPath(ConvertU8ViewToView(tempPathStr));
+    pathBuf.SetPath(tempPathStr);
     if (DirUtil::IsExist(pathBuf)) {
         if (!DirUtil::IsDirectory(pathBuf)) {
             return EFileBackupError::FBE_FILE_ALREADY_EXIST;
