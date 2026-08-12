@@ -14,7 +14,7 @@ else()
 	set(_bin_suffix 32)
 endif()
 
-set(OCmakeUtil_TAG a761d40ace98b19d83332eb7a8cbdb1161809e2d)
+set(OCmakeUtil_TAG d9b507b7f017336c78d514f70aa4989eb69edff8)
 set(UTILPP_TAG 4f0b6eaab32b873c1149405d422672ac3ed02055)
 
 project(OFileBackup VERSION ${VERSION})

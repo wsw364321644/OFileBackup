@@ -26,8 +26,8 @@ public:
         uint32_t CompleteFileCount{ 0 };
         //uint32_t FileNameTableOffset{ 0 };
         uint32_t FileChunkStatusTableOffset{ 0 };
-        char TargetID[bin_to_hex_length(UUID_128_BYTES)];
-        char SourceID[bin_to_hex_length(UUID_128_BYTES)];
+        char TargetID[bin_to_hex_length(UUID_128_BYTES)]{ 0 };
+        char SourceID[bin_to_hex_length(UUID_128_BYTES)]{ 0 };
         bool bTempFolderExist{ false };
     }FolderRecoverProgressHeader_t;
 
