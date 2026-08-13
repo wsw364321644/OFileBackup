@@ -15,6 +15,8 @@
 
 class FolderRecoverProgress {
 public:
+    virtual ~FolderRecoverProgress();
+
     using FlieNameLenType = uint32_t;
     using FlieNameChType = char;
 #pragma pack(push, 1)

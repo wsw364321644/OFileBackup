@@ -20,6 +20,14 @@
 
 constexpr uint8_t MaxChunkConstructTaskNum = 8;
 
+FolderRecoverProgress::~FolderRecoverProgress()
+{
+    if (FileBackedBuffer) {
+        FreeFileBackedBuffer(FileBackedBuffer);
+    }
+}
+
+
 class FFolderRecoverHelper :public IFolderRecoverHelperInterface {
 public:
 
@@ -360,6 +368,11 @@ void FFolderRecoverHelper::FinishRecoverTask(this FFolderRecoverHelper& self, st
     }
     if (!FolderRecoverWorkData.RecoverProcess.GetFolderRecoverProgressHeader().bTempFolderExist) {
         DirUtil::Delete(FolderRecoverWorkData.TempFolder.u8string());
+    }
+    std::error_code ec;
+    auto bres=pFolderWorkData->RecoverProcess.FileBackedBuffer->Clean(ec);
+    if (!bres) {
+        FolderRecoverWorkData.ErrorCode = ec;
     }
     FolderRecoverWorkData.SetStatus(EFolderRecoverStatus::FRS_Finished);
 }
