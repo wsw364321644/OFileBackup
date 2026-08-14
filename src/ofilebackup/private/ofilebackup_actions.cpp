@@ -167,6 +167,7 @@ bool gen_folder_manifest_action(std::u8string_view workPathStr, std::u8string_vi
         return false;
     }
     auto& charBuf = *FCharBuffer::GetThreadSingleton();
+    charBuf.Clear();
     pFolderManifest->to_string(charBuf, ec);
     if (ec) {
         return false;
