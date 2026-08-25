@@ -71,14 +71,8 @@ jobs:
       # uses: lukka/get-cmake@fffaaafeea488556c2c12dad60690008bc1caacb
       uses: lukka/get-cmake@v4.4.2
       with:
-        # Optional CMake version, expressed with the semantic version syntax, e.g. '~3.25.0' for the most recent 3.25.x, `ˆ3.25.0` for the most recent 3.x version, or a specific version `3.25.2'. Or `latest` or `latestrc` for the latest stable or release candidate version. If not specified the `latest` is installed.
-        cmakeVersion: # optional
-        # Optional Ninja version, same syntax as `cmakeVersion` input. If not specified, `latest` is installed
-        ninjaVersion: # optional
-        # Optional argument indicating whether to use the cloud based storage of the GitHub cache. Suited for the GitHub-hosted runners.
-        useCloudCache: # optional, default is true
-        # Optional argument indicating whether to use the local cache on the GitHub runner file system. Suited for the self-hosted GitHub runners.
-        useLocalCache: # optional
+        cmakeVersion: "ˆ4.4.0"
+
         
     - name: Configure CMake
       # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
