@@ -14,7 +14,6 @@ else()
 	set(_bin_suffix 32)
 endif()
 
-set(OCmakeUtil_TAG d9b507b7f017336c78d514f70aa4989eb69edff8)
 set(UTILPP_TAG 3683ca3a6dcf5ab29f86ce6d2f4718cfaa54fee4)
 
 project(OFileBackup VERSION ${VERSION})
@@ -79,9 +78,7 @@ FetchContent_Declare(
 	GIT_REPOSITORY
 	https://github.com/wsw364321644/OCmakeUtil.git
 	GIT_TAG
-	${OCmakeUtil_TAG}
-	GIT_SUBMODULES_RECURSE
-	true
+	main
 )
 FetchContent_MakeAvailable(OCmakeUtil)
 include(ProjectImport)
