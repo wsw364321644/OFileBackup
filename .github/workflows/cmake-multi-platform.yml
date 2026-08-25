@@ -71,7 +71,7 @@ jobs:
       # uses: lukka/get-cmake@fffaaafeea488556c2c12dad60690008bc1caacb
       uses: lukka/get-cmake@v4.4.2
       with:
-        cmakeVersion: "ˆ4.4.0"
+        cmakeVersion: latest
 
         
     - name: Configure CMake
