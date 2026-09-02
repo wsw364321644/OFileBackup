@@ -5,6 +5,7 @@
 #include <std_ext.h>
 #include <simple_error.h>
 #include <dir_util.h>
+#include <LoggerHelper.h>
 
 #include <glob/glob.hpp>
 #include <xxhash.h>
@@ -90,17 +91,22 @@ void IFileBackupManagerBase::InitTask(CommonHandle32_t handle)
             pFolderWorkData->EC = std::make_error_code(std::errc::invalid_argument);
             return;
         }
-        std::string GlobPath = ConvertU8ViewToString((std::filesystem::path(RootPath) / FileMapping.RelativeGlobPath).u8string());
+
+        auto GlobPath = std::filesystem::path(ConvertViewToU8View(RootPath)) / FileMapping.RelativeGlobPath;
+
         if (FileMapping.bRecursive) {
             std::filesystem::path tPath = GlobPath;
             if (tPath.filename() == "*") {
                 tPath.replace_filename("**");
             }
-            paths = glob::rglob(ConvertU8ViewToString( tPath.u8string()));
+            SIMPLELOG_LOGGER_DEBUG(nullptr, "rglob {}", ConvertU8ViewToString(tPath.u8string()));
+            paths = glob::rglob(tPath.string());
         }
         else {
-            paths = glob::glob(GlobPath);
+            SIMPLELOG_LOGGER_DEBUG(nullptr, "glob {}", ConvertU8ViewToString(GlobPath.u8string()));
+            paths = glob::glob(GlobPath.string());
         }
+
         if (paths.size()==0) {
             pFolderWorkData->Status = EGenFolderMetaDataStatus::Finished;
             pFolderWorkData->EC = std::make_error_code(std::errc::invalid_argument);
@@ -112,7 +118,7 @@ void IFileBackupManagerBase::InitTask(CommonHandle32_t handle)
             }
             auto pFileChunksData = std::make_shared<FileChunksData_t>();
             pFileChunksData->FileSize = std::filesystem::file_size(p);
-            pFileChunksData->FileName = ConvertU8ViewToView((std::filesystem::path(FileMapping.TargetRelativePath)/ p.lexically_relative(RootPath)).lexically_normal().u8string());
+            pFileChunksData->FileName = ConvertU8ViewToView((std::filesystem::path(FileMapping.TargetRelativePath)/ p.lexically_relative(ConvertViewToU8View(RootPath))).lexically_normal().u8string());
             auto [itr, res] = pFolderWorkData->FolderManifest.Files.try_emplace(ConvertViewToU8View(pFileChunksData->FileName), pFileChunksData);
             if (!res) {
                 pFolderWorkData->Status = EGenFolderMetaDataStatus::Finished;
