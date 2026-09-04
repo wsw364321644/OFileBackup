@@ -309,7 +309,7 @@ void FFolderRecoverHelper::RecoverByChunkTask(this FFolderRecoverHelper& self, s
         }
         auto& [_,pFileData] = *fileItr;
 
-        ires = FileTaskData.TargetFile.Open((FolderRecoverWorkData.TempFolder / pFileData->FileName).u8string(), UTIL_OPEN_ALWAYS, pFileData->FileSize);
+        ires = FileTaskData.TargetFile.Open((FolderRecoverWorkData.TempFolder / ConvertViewToU8View(pFileData->FileName)).u8string(), UTIL_OPEN_ALWAYS, pFileData->FileSize);
         if (ires != ERR_SUCCESS) {
             auto expected = std::error_code();
             FolderRecoverWorkData.ErrorCode.compare_exchange_strong(expected, std::make_error_code(std::errc::no_such_file_or_directory));

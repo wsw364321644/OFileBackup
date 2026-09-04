@@ -326,7 +326,7 @@ EFileBackupError recover_folder(std::u8string_view workPathStr, std::u8string_vi
 
     bool res{ true };
     CommonHandle32_t recoverHandle = FolderRecoverHelper.AddTask(pManifest, pSourceManifest, workPathStr, chunkPathStr, tempPathStr
-        , [&](EFolderRecoverStatus status, const std::error_code ec) {
+        , [&](EFolderRecoverStatus status, std::error_code ec) {
             switch (status) {
             case EFolderRecoverStatus::FRS_Finished: {
                 bExit = true;

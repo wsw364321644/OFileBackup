@@ -94,7 +94,7 @@ enum class EFolderRecoverStatus
 
 class  IFolderRecoverHelperInterface {
 public:
-    typedef std::function<void(EFolderRecoverStatus,const std::error_code)> TRecoverFoldeStatusChangedDelegate;
+    typedef std::function<void(EFolderRecoverStatus,std::error_code)> TRecoverFoldeStatusChangedDelegate;
     virtual CommonHandle32_t AddTask(std::shared_ptr <const FolderManifest_t> manifest, std::shared_ptr <const FolderManifest_t> sourceManifest,std::u8string_view workDirStr, std::u8string_view chunkDirStr, std::u8string_view tempDirStr, TRecoverFoldeStatusChangedDelegate delegate) = 0;
     virtual std::optional<std::reference_wrapper<FolderRecoverProgress>> GetFolderRecoverProcess(CommonHandle32_t handle) = 0;
 
