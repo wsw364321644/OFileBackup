@@ -84,7 +84,7 @@ FetchContent_MakeAvailable(OCmakeUtil)
 include(ProjectImport)
 include(TargetImport)
 
-ImportProject(RapidJSON SSH TAG master)
+ImportProject(RapidJSON ${SSH} TAG master)
 ImportProject(simdjson ${STATIC_CRT} ${SSH} TAG v4.2.4)
 ImportProject(absl ${STATIC_CRT} STATIC ${SSH} TAG 20260107.1)
 ImportProject(libuv ${STATIC_CRT} ${SSH} FIND TAG v1.52.0)
