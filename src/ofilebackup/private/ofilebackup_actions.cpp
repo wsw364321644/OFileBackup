@@ -429,7 +429,7 @@ EFileBackupError recover_folder(std::u8string_view workPathStr, std::u8string_vi
     );
     auto ioHandle = GetTaskManagerSingleton()->NewWorkflow();
     GetTaskManagerSingleton()->AddTick(ioHandle, [&](float delta) {
-        FolderRecoverHelper.IOTick(delta);
+        FolderRecoverHelper.TickIO(delta);
         }
     );
 

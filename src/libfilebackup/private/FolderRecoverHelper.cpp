@@ -42,7 +42,7 @@ public:
     //IFolderRecoverHelperInterface::TFinishRecoverTask GetFinishRecoverTask(CommonHandle32_t) override;
 
     void Tick(float delta) override;
-    void IOTick(float delta) override;
+    void TickIO(float delta) override;
 
     //void RecoverBySourceTask(this FFolderRecoverHelper& self, std::shared_ptr<FolderRecoverWorkData_t> pFolderWorkData, std::shared_ptr<RecoverFileTaskData_t> pFileTaskData);
     void RecoverByChunkTask(this FFolderRecoverHelper& self, std::shared_ptr<FolderRecoverWorkData_t> pFolderWorkData, std::shared_ptr<RecoverFileTaskData_t> pFileTaskData, std::u8string_view chunkHexName, bool bFromSource);
@@ -466,7 +466,7 @@ void FFolderRecoverHelper::Tick(float delta)
     }
 }
 
-void FFolderRecoverHelper::IOTick(float delta)
+void FFolderRecoverHelper::TickIO(float delta)
 {
     while (true)
     {
@@ -483,7 +483,7 @@ void FFolderRecoverHelper::IOTick(float delta)
     if (size != 0) {
         for (auto& req : SaveReqCache) {
             if (req->Status == EFolderRecoverStatus::FRS_RecoverFile) {
-                req->RecoverProcess.FileBackedBuffer->IOTick(delta);
+                req->RecoverProcess.FileBackedBuffer->TickIO(delta);
             }
         }
         SaveReqCache.clear();

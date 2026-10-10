@@ -112,7 +112,7 @@ public:
     virtual TOneChunkRecoverTask GetRecoverByChunkTask(CommonHandle32_t, std::u8string_view,bool bFromSource=false) = 0;
     //virtual TFinishRecoverTask GetFinishRecoverTask(CommonHandle32_t) = 0;
     virtual void Tick(float delta) = 0;
-    virtual void IOTick(float delta) = 0;
+    virtual void TickIO(float delta) = 0;
 
 };
 

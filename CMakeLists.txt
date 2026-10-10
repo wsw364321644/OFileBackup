@@ -14,7 +14,7 @@ else()
 	set(_bin_suffix 32)
 endif()
 
-set(UTILPP_TAG 3683ca3a6dcf5ab29f86ce6d2f4718cfaa54fee4)
+set(UTILPP_TAG d3f9fbd0514f4c51f1098ab82b07611dc27728ea)
 
 project(OFileBackup VERSION ${VERSION})
 enable_language(CXX ASM C)
