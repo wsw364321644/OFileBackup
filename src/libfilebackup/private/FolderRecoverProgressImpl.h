@@ -91,8 +91,9 @@ typedef struct FolderRecoverWorkData_t {
 
     FolderRecoverProgressImpl RecoverProcess;
     IFolderRecoverHelperInterface::TRecoverFoldeStatusChangedDelegate StatusDelegate;
-    std::atomic<EFolderRecoverStatus> Status;;
-    EFolderRecoverStatus LastStatus;;
+    std::atomic<EFolderRecoverStatus> Status;
+    EFolderRecoverStatus LastStatus;
+    EFolderRecoverStatus LastTickStatus;
     std::filesystem::path WorkFolder;
     std::filesystem::path ChunkFolder;
     std::filesystem::path TempFolder;
