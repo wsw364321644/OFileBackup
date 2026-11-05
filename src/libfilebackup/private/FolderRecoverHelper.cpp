@@ -39,7 +39,7 @@ public:
     }
     //IFolderRecoverHelperInterface::TRecoverTask GetRecoverBySourceTask(CommonHandle32_t) override;
     IFolderRecoverHelperInterface::TOneChunkRecoverTask GetRecoverByChunkTask(CommonHandle32_t,std::u8string_view chunkHexName, bool bFromSource) override;
-    //IFolderRecoverHelperInterface::TFinishRecoverTask GetFinishRecoverTask(CommonHandle32_t) override;
+    bool ReqFinishRecoverTask(CommonHandle32_t) override;
 
     void Tick(float delta) override;
     void TickIO(float delta) override;
@@ -148,23 +148,30 @@ IFolderRecoverHelperInterface::TOneChunkRecoverTask FFolderRecoverHelper::GetRec
     return func;
 }
 
-//IFolderRecoverHelperInterface::TFinishRecoverTask FFolderRecoverHelper::GetFinishRecoverTask(CommonHandle32_t handle)
-//{
-//    auto itr = FolderRecoverWorkDataList.find(handle);
-//    if (itr == FolderRecoverWorkDataList.end()) {
-//        return nullptr;
-//    }
-//    auto& pFolderWorkData = itr->second;
-//    if (pFolderWorkData->RecoverProcess.FilesNeedRecover.size() != 0) {
-//        return nullptr;
-//    }
-//    if (pFolderWorkData->ErrorCode.load()) {
-//        return nullptr;
-//    }
-//
-//    TOneFileRecoverTask func = std::bind(&FFolderRecoverHelper::FinishRecoverTask, *this, pFolderWorkData);
-//    return func;
-//}
+bool FFolderRecoverHelper::ReqFinishRecoverTask(CommonHandle32_t handle)
+{
+    auto itr = FolderRecoverWorkDataList.find(handle);
+    if (itr == FolderRecoverWorkDataList.end()) {
+        return false;
+    }
+    auto& pFolderRecoverWorkData = itr->second;
+    if (pFolderRecoverWorkData->Status != EFolderRecoverStatus::FRS_FinishWork) {
+        return false;
+    }
+    if (pFolderRecoverWorkData->ErrorCode.load()) {
+        return false;
+    }
+
+    std::shared_ptr< RecoverFileTaskData_t> pFileTaskData = pFolderRecoverWorkData->GetFileTask();
+    pFileTaskData->FilesNeedRecover = pFolderRecoverWorkData->RecoverProcess.FilesNeedRecover;
+    auto [_, res] = pFolderRecoverWorkData->FileTasks.emplace(pFileTaskData);
+    FnishWorkQueue.enqueue(
+        [this, pFolderRecoverWorkData, pFileTaskData]() {
+            FinishRecoverTask(pFolderRecoverWorkData, pFileTaskData);
+        }
+    );
+    return true;
+}
 
 
 //void FFolderRecoverHelper::RecoverBySourceTask(this FFolderRecoverHelper& self, std::shared_ptr<FolderRecoverWorkData_t> pFolderWorkData, std::shared_ptr<RecoverFileTaskData_t> pFileTaskData)
@@ -369,11 +376,7 @@ void FFolderRecoverHelper::FinishRecoverTask(this FFolderRecoverHelper& self, st
     if (!FolderRecoverWorkData.RecoverProcess.GetFolderRecoverProgressHeader().bTempFolderExist) {
         DirUtil::Delete(FolderRecoverWorkData.TempFolder.u8string());
     }
-    std::error_code ec;
-    auto bres=pFolderWorkData->RecoverProcess.FileBackedBuffer->Clean(ec);
-    if (!bres) {
-        FolderRecoverWorkData.ErrorCode = ec;
-    }
+    pFolderWorkData->RecoverProcess.FileBackedBuffer->Close();
     FolderRecoverWorkData.SetStatus(EFolderRecoverStatus::FRS_Finished);
 }
 
@@ -443,20 +446,6 @@ void FFolderRecoverHelper::Tick(float delta)
                 FolderRecoverWorkData.FileTasks.erase(usedFileTask);
                 FolderRecoverWorkData.FileTaskPool.push_back(usedFileTask);
             }
-            break;
-        }
-        case EFolderRecoverStatus::FRS_FinishWork: {
-            if (!bNewStatus) {
-                break;
-            }
-            std::shared_ptr< RecoverFileTaskData_t> pFileTaskData = pFolderRecoverWorkData->GetFileTask();
-            pFileTaskData->FilesNeedRecover = pFolderRecoverWorkData->RecoverProcess.FilesNeedRecover;
-            auto [_, res] = pFolderRecoverWorkData->FileTasks.emplace(pFileTaskData);
-            FnishWorkQueue.enqueue(
-                [this, pFolderRecoverWorkData, pFileTaskData]() {
-                    FinishRecoverTask(pFolderRecoverWorkData, pFileTaskData);
-                }
-            );
             break;
         }
         case EFolderRecoverStatus::FRS_Finished: {

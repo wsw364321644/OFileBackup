@@ -102,7 +102,7 @@ public:
     typedef std::function<void()> TOneFileRecoverTask;
     typedef std::function<void()> TRecoverTask;
     typedef std::function<void()> TOneChunkRecoverTask;
-    typedef std::function<void()> TFinishRecoverTask;
+
     //in tick thread
     typedef std::function<void()> TOneFileRecoverPostProcessingTask;
     typedef std::function<void()> TOneChunkRecoverPostProcessingTask;
@@ -110,7 +110,7 @@ public:
     virtual std::tuple<TOneFileRecoverTask, TOneFileRecoverPostProcessingTask> GetNextRecoverFileTask(CommonHandle32_t) = 0;
     //virtual TRecoverTask GetRecoverBySourceTask(CommonHandle32_t) = 0;
     virtual TOneChunkRecoverTask GetRecoverByChunkTask(CommonHandle32_t, std::u8string_view,bool bFromSource=false) = 0;
-    //virtual TFinishRecoverTask GetFinishRecoverTask(CommonHandle32_t) = 0;
+    virtual bool ReqFinishRecoverTask(CommonHandle32_t) = 0;
     virtual void Tick(float delta) = 0;
     virtual void TickIO(float delta) = 0;
 
