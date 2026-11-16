@@ -1,9 +1,13 @@
 #include "FileBackupCommon.h"
+#include "FileBackupInternal.h"
 #include <simple_error.h>
 #include <string_convert.h>
 #include <simdjson.h>
 #include <rapidjson/document.h>
 #include <rapidjson/writer.h>
+#include <algorithm>
+#include <filesystem>
+#include <xxhash.h>
 
 
 //rapidjson::doc to_json(nlohmann::json& j, const FolderManifest_t& FolderManifest) {
@@ -358,5 +362,98 @@ std::shared_ptr<const FolderManifestCompareResult_t> CompareFolderManifest(const
 
     }
 
+    return out;
+}
+
+std::shared_ptr<const FolderManifest_t> MergeFolderManifest(std::span<const MergeFolderManifest_t> manifests, std::error_code& ec)
+{
+    ec.clear();
+    if (manifests.empty()) {
+        ec = std::make_error_code(std::errc::invalid_argument);
+        return nullptr;
+    }
+    // manifest 级字段无法部分合并，所有输入必须一致
+    for (auto& item : manifests) {
+        if (!item.Manifest ||
+            item.Manifest->HexNameLen != manifests[0].Manifest->HexNameLen ||
+            item.Manifest->ChunkFileMaxSize != manifests[0].Manifest->ChunkFileMaxSize) {
+            ec = std::make_error_code(std::errc::invalid_argument);
+            return nullptr;
+        }
+    }
+
+    struct MergeEntry_t {
+        int32_t Priority;
+        uint32_t Order;
+        std::shared_ptr<FileChunksData_t> FileData;
+    };
+    std::vector<MergeEntry_t> entries;
+
+    uint32_t order = 0;
+    for (auto& item : manifests) {
+        auto dirPath = std::filesystem::path(item.SubRelativePath);
+        for (auto& [relFileName, fileData] : item.Manifest->Files) {
+            auto mergedPath = (dirPath / std::filesystem::path(relFileName)).lexically_normal();
+            if (mergedPath.has_root_path()) {
+                ec = std::make_error_code(std::errc::invalid_argument);
+                return nullptr;
+            }
+
+            auto mergedU8 = mergedPath.u8string();
+            if (std::u8string_view(mergedU8) == relFileName) {
+                // 与备份端生成方式一致，名字未变则共享原对象
+                entries.push_back({ item.Priority, order, fileData });
+                continue;
+            }
+            // key 加了前缀，FileName 必须与 key 指向同一份字符串，否则 to_string 序列化不一致，
+            // 需要重建 FileChunksData_t（Chunks 集合可直接共享）
+            auto pNewFile = std::make_shared<FileChunksData_t>();
+            pNewFile->FileName = ConvertU8ViewToView(mergedU8);
+            memcpy(pNewFile->FileHash, fileData->FileHash, sizeof(pNewFile->FileHash));
+            pNewFile->FileSize = fileData->FileSize;
+            pNewFile->Chunks = fileData->Chunks;
+            entries.push_back({ item.Priority, order, pNewFile });
+        }
+        ++order;
+    }
+
+    // 优先级高者先插；同优先级按传入顺序靠前者先插；try_emplace 失败即被更高优先级覆盖，跳过
+    std::sort(entries.begin(), entries.end(), [](const MergeEntry_t& l, const MergeEntry_t& r) {
+        if (l.Priority != r.Priority) {
+            return l.Priority > r.Priority;
+        }
+        return l.Order < r.Order;
+        });
+
+    auto out = std::make_shared<FolderManifest_t>();
+    auto& manifest = *out;
+    manifest.HexNameLen = manifests[0].Manifest->HexNameLen;
+    manifest.ChunkFileMaxSize = manifests[0].Manifest->ChunkFileMaxSize;
+
+    // ID 派生：按传入顺序串联所有输入 manifest 的 ID（'\0' 分隔）做 XXH3-128，同输入必同输出；
+    // 按 RFC 9562 UUIDv8（custom）格式置版本与变体位，输出为格式合法的 UUID：
+    //   字节6高4位 = 0x8（version 8），字节8高2位 = 10（variant），
+    //   随机/时间 UUID 的 version nibble 取值 1~6，与 0x8 互斥，不会与 generate_uuid_128 生成的 ID 重复
+    {
+        std::string idSrcBuf;
+        for (auto& item : manifests) {
+            idSrcBuf.append(item.Manifest->ID, bin_to_hex_length(UUID_128_BYTES));
+            idSrcBuf.push_back('\0');
+        }
+        auto hash = XXH3_128bits(idSrcBuf.data(), idSrcBuf.size());
+        uint8_t idBin[UUID_128_BYTES];
+        CopyxxHashToBuf(hash, idBin);
+
+        // 输出 manifest 的 ID 由所有输入 ID 按传入顺序做 XXH3-128 派生（同输入必同输出），
+        // 并按 RFC 9562 UUIDv8 格式置 version=8、variant=10xx，与 generate_uuid_128 的随机 UUID 结构互斥
+        idBin[6] = static_cast<uint8_t>((idBin[6] & 0x0F) | 0x80);  // version = 8 (custom)
+        idBin[8] = static_cast<uint8_t>((idBin[8] & 0x3F) | 0x80);  // variant = 10xx
+        to_upper_hex(manifest.ID, idBin, sizeof(idBin));
+    }
+
+    manifest.Files.reserve(entries.size());
+    for (auto& entry : entries) {
+        manifest.Files.try_emplace(ConvertViewToU8View(entry.FileData->FileName), entry.FileData);
+    }
     return out;
 }

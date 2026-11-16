@@ -92,34 +92,6 @@ std::optional<std::reference_wrapper<FolderRecoverProgress>> FFolderRecoverHelpe
     return pFolderWorkData->RecoverProcess;
 }
 
-//IFolderRecoverHelperInterface::TRecoverTask FFolderRecoverHelper::GetRecoverBySourceTask(CommonHandle32_t handle)
-//{
-//    auto itr = FolderRecoverWorkDataList.find(handle);
-//    if (itr == FolderRecoverWorkDataList.end()) {
-//        return nullptr ;
-//    }
-//    auto& pFolderWorkData = itr->second;
-//    if (pFolderWorkData->RecoverProcess.FilesNeedRecover.size()==0) {
-//        return nullptr;
-//    }
-//    if (pFolderWorkData->ErrorCode.load()) {
-//        return nullptr;
-//    }
-//
-//
-//    std::shared_ptr< RecoverFileTaskData_t> pFileTaskData = pFolderWorkData->GetFileTask();
-//    pFileTaskData->FilesNeedRecover = pFolderWorkData->RecoverProcess.FilesNeedRecover;
-//    auto [_, res] = pFolderWorkData->FileTasks.emplace(pFileTaskData);
-//    if (!res) {
-//        return nullptr;
-//    }
-//
-//    TRecoverTask func = [this, pFolderWorkData, pFileTaskData]() {
-//        RecoverBySourceTask(pFolderWorkData, pFileTaskData);
-//        };
-//    return func ;
-//}
-
 IFolderRecoverHelperInterface::TOneChunkRecoverTask FFolderRecoverHelper::GetRecoverByChunkTask(CommonHandle32_t handle, std::u8string_view chunkHexName, bool bFromSource)
 {
     auto itr = FolderRecoverWorkDataList.find(handle);
