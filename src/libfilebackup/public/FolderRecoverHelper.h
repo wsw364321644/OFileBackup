@@ -21,16 +21,15 @@ public:
     using FlieNameChType = char;
 #pragma pack(push, 1)
     typedef struct FolderRecoverProgressHeader_t {
-        //uint32_t AllDeleteFileNum{ 0 };
         uint32_t AllFileChunkNum{ 0 };
         uint32_t AllFileNum{ 0 };
         uint32_t CompleteFileChunkCount{ 0 };
         uint32_t CompleteFileCount{ 0 };
-        //uint32_t FileNameTableOffset{ 0 };
         uint32_t FileChunkStatusTableOffset{ 0 };
         char TargetID[bin_to_hex_length(UUID_128_BYTES)]{ 0 };
         char SourceID[bin_to_hex_length(UUID_128_BYTES)]{ 0 };
         bool bTempFolderExist{ false };
+        bool bPostProcessFinished{ false };
     }FolderRecoverProgressHeader_t;
 
     //typedef struct FolderDeleteFileHeader_t {
@@ -108,9 +107,11 @@ public:
     typedef std::function<void()> TOneChunkRecoverPostProcessingTask;
 
     virtual std::tuple<TOneFileRecoverTask, TOneFileRecoverPostProcessingTask> GetNextRecoverFileTask(CommonHandle32_t) = 0;
-    //virtual TRecoverTask GetRecoverBySourceTask(CommonHandle32_t) = 0;
     virtual TOneChunkRecoverTask GetRecoverByChunkTask(CommonHandle32_t, std::u8string_view,bool bFromSource=false) = 0;
+    //Request the recover post-processing (delete extra files, create empty files, move temp files into WorkFolder).
     virtual bool ReqFinishRecoverTask(CommonHandle32_t) = 0;
+    //Returns true when both the progress file and the temp directory are absent (idempotent); empty tempDirStr returns ec=invalid_argument.
+    virtual bool CleanRecoverTempData(std::u8string_view tempDirStr, std::error_code& ec) = 0;
     virtual void Tick(float delta) = 0;
     virtual void TickIO(float delta) = 0;
 

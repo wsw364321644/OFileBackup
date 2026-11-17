@@ -372,7 +372,7 @@ std::shared_ptr<const FolderManifest_t> MergeFolderManifest(std::span<const Merg
         ec = std::make_error_code(std::errc::invalid_argument);
         return nullptr;
     }
-    // manifest 级字段无法部分合并，所有输入必须一致
+    // manifest-level fields cannot be partially merged, all inputs must agree
     for (auto& item : manifests) {
         if (!item.Manifest ||
             item.Manifest->HexNameLen != manifests[0].Manifest->HexNameLen ||
@@ -401,12 +401,12 @@ std::shared_ptr<const FolderManifest_t> MergeFolderManifest(std::span<const Merg
 
             auto mergedU8 = mergedPath.u8string();
             if (std::u8string_view(mergedU8) == relFileName) {
-                // 与备份端生成方式一致，名字未变则共享原对象
+                // same convention as the backup side generates FileName; share the original object when the name is unchanged
                 entries.push_back({ item.Priority, order, fileData });
                 continue;
             }
-            // key 加了前缀，FileName 必须与 key 指向同一份字符串，否则 to_string 序列化不一致，
-            // 需要重建 FileChunksData_t（Chunks 集合可直接共享）
+            // the key got a prefix, FileName must point to the same string as the key, otherwise to_string serialization is inconsistent,
+            // so rebuild FileChunksData_t (the Chunks set can be shared directly)
             auto pNewFile = std::make_shared<FileChunksData_t>();
             pNewFile->FileName = ConvertU8ViewToView(mergedU8);
             memcpy(pNewFile->FileHash, fileData->FileHash, sizeof(pNewFile->FileHash));
@@ -417,7 +417,7 @@ std::shared_ptr<const FolderManifest_t> MergeFolderManifest(std::span<const Merg
         ++order;
     }
 
-    // 优先级高者先插；同优先级按传入顺序靠前者先插；try_emplace 失败即被更高优先级覆盖，跳过
+    // higher priority inserts first; same priority inserts by input order, earlier first; try_emplace failure means already covered by higher priority, skip
     std::sort(entries.begin(), entries.end(), [](const MergeEntry_t& l, const MergeEntry_t& r) {
         if (l.Priority != r.Priority) {
             return l.Priority > r.Priority;
@@ -430,10 +430,10 @@ std::shared_ptr<const FolderManifest_t> MergeFolderManifest(std::span<const Merg
     manifest.HexNameLen = manifests[0].Manifest->HexNameLen;
     manifest.ChunkFileMaxSize = manifests[0].Manifest->ChunkFileMaxSize;
 
-    // ID 派生：按传入顺序串联所有输入 manifest 的 ID（'\0' 分隔）做 XXH3-128，同输入必同输出；
-    // 按 RFC 9562 UUIDv8（custom）格式置版本与变体位，输出为格式合法的 UUID：
-    //   字节6高4位 = 0x8（version 8），字节8高2位 = 10（variant），
-    //   随机/时间 UUID 的 version nibble 取值 1~6，与 0x8 互斥，不会与 generate_uuid_128 生成的 ID 重复
+    // ID derivation: concatenate all input manifest IDs in input order ('\0' separated) and hash with XXH3-128, same input always gives same output;
+    // set version and variant bits per RFC 9562 UUIDv8 (custom), the output is a well-formed UUID:
+    //   high nibble of byte 6 = 0x8 (version 8), high 2 bits of byte 8 = 10 (variant),
+    //   random/time UUID version nibbles are 1~6, mutually exclusive with 0x8, so it never collides with IDs from generate_uuid_128
     {
         std::string idSrcBuf;
         for (auto& item : manifests) {
@@ -444,8 +444,7 @@ std::shared_ptr<const FolderManifest_t> MergeFolderManifest(std::span<const Merg
         uint8_t idBin[UUID_128_BYTES];
         CopyxxHashToBuf(hash, idBin);
 
-        // 输出 manifest 的 ID 由所有输入 ID 按传入顺序做 XXH3-128 派生（同输入必同输出），
-        // 并按 RFC 9562 UUIDv8 格式置 version=8、variant=10xx，与 generate_uuid_128 的随机 UUID 结构互斥
+        // stamp RFC 9562 UUIDv8 fields: version=8, variant=10xx, structurally exclusive with generate_uuid_128 random UUIDs
         idBin[6] = static_cast<uint8_t>((idBin[6] & 0x0F) | 0x80);  // version = 8 (custom)
         idBin[8] = static_cast<uint8_t>((idBin[8] & 0x3F) | 0x80);  // variant = 10xx
         to_upper_hex(manifest.ID, idBin, sizeof(idBin));

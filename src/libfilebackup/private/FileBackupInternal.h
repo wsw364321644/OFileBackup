@@ -17,6 +17,7 @@
 #include <fstream>
 #include <atomic>
 #include <span>
+#include <filesystem>
 
 #ifdef BOOST_FOUND
 typedef boost::unordered_flat_set<std::string> HashSetType;
@@ -184,4 +185,13 @@ inline void CopyxxHashToBuf(XXH128_hash_t& hash, unsigned char buf[16]) {
     auto lowbe64 = htobe64(hash.low64);
     memcpy(buf,&highbe64, sizeof(highbe64));
     memcpy(buf+ sizeof(highbe64),&lowbe64, sizeof(lowbe64));
+}
+
+// folder recover progress file path convention: in tempDir's parent directory, named as tempDir's last segment with .rcv extension;
+// shared by Init (creation) and CleanRecoverTempData (locating), so the progress file is found from tempDir alone
+inline std::filesystem::path GetFolderRecoverProgressPath(const std::filesystem::path& tempFolder)
+{
+    auto progressName = tempFolder.filename();
+    progressName.replace_extension("rcv");
+    return tempFolder.parent_path() / progressName;
 }

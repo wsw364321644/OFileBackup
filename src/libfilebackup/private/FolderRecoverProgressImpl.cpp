@@ -1,6 +1,7 @@
 #include "FolderRecoverProgressImpl.h"
 #include "FolderRecoverHelper.h"
 #include <dir_util.h>
+#include <algorithm>
 void FolderRecoverProgressImpl::Init(std::shared_ptr<FolderRecoverWorkData_t> workData, std::shared_ptr < const  FolderManifest_t> pTargetManifest, std::shared_ptr<const FolderManifest_t> pSourceManifest, std::error_code& ec)
 {
     ec.clear();
@@ -47,9 +48,7 @@ void FolderRecoverProgressImpl::Init(std::shared_ptr<FolderRecoverWorkData_t> wo
     }
     FolderRecoverProgressHeader.bTempFolderExist = DirUtil::IsExist(FolderRecoverWorkData.TempFolder.u8string());
 
-    auto fileName = FolderRecoverWorkData.WorkFolder.filename();
-    fileName.replace_extension("rcv");
-    auto filePath = FolderRecoverWorkData.TempFolder.parent_path() / fileName;
+    auto filePath = GetFolderRecoverProgressPath(FolderRecoverWorkData.TempFolder);
     auto divRes = std::div(FolderRecoverProgressHeader.AllFileChunkNum, CHAR_BIT);
     auto bres = FileBackedBuffer->Init(FolderRecoverProgressHeader.FileChunkStatusTableOffset + divRes.quot + (divRes.rem > 0 ? 1 : 0), filePath.u8string(), ec);
     if (!bres) {
@@ -102,7 +101,19 @@ void FolderRecoverProgressImpl::Init(std::shared_ptr<FolderRecoverWorkData_t> wo
         return;
     } while (true);
     ec.clear();
-    /// gen new data
+    // gen new data
+    // zero the chunk status table first when reusing an old progress file, so leftover completion bits cannot make the new task wrongly consider chunks recovered
+    {
+        uint32_t tableSize = FileBackedBuffer->GetSize() - FolderRecoverProgressHeader.FileChunkStatusTableOffset;
+        static constexpr uint32_t ZeroBlock = 512;
+        uint8_t zeroBuf[ZeroBlock]{};
+        uint32_t done = 0;
+        while (done < tableSize) {
+            auto cur = std::min(tableSize - done, ZeroBlock);
+            FileBackedBuffer->WriteData(FileBackedBuffer->GetPtr(FolderRecoverProgressHeader.FileChunkStatusTableOffset + done), zeroBuf, cur);
+            done += cur;
+        }
+    }
 
     FileBackedBuffer->WriteData(0u, FolderRecoverProgressHeader);
     uint32_t FileNameOffsetCounr{ 0 };

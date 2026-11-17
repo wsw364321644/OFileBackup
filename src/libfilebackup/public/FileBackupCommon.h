@@ -119,9 +119,9 @@ typedef struct FolderManifestCompareResult_t {
 LIB_FILEBACKUP_EXPORT std::shared_ptr<const FolderManifestCompareResult_t> CompareFolderManifest( const FolderManifest_t& target, std::shared_ptr<const FolderManifest_t> source);
 
 typedef struct MergeFolderManifest_t {
-    std::u8string_view SubRelativePath;                            //该 manifest 相对目标合并根目录的路径；空或 "." 表示根目录本身
-    std::shared_ptr<const FolderManifest_t> Manifest;              //子目录的 manifest，其 Files 的 key 相对该子目录
-    int32_t Priority{ 0 };                                         //数值越大优先级越高；同优先级按传入顺序靠前者胜
+    std::u8string_view SubRelativePath;                            //path of this manifest relative to the merge target root; empty or "." means the root itself
+    std::shared_ptr<const FolderManifest_t> Manifest;              //manifest of the sub folder, whose Files keys are relative to that folder
+    int32_t Priority{ 0 };                                         //higher value wins; same priority resolved by input order, earlier wins
 }MergeFolderManifest_t;
 
 LIB_FILEBACKUP_EXPORT std::shared_ptr<const FolderManifest_t> MergeFolderManifest(std::span<const MergeFolderManifest_t> manifests, std::error_code& ec);
