@@ -43,7 +43,7 @@ typedef struct GenFolderChunkParams_t {
 class  IFileBackupManagerInterface {
 public:
 
-    typedef std::function<void(EGenFolderMetaDataStatus,std::error_code&)> TGenFolderMetaDataStatusChangedDelegate;
+    typedef std::function<void(EGenFolderMetaDataStatus,std::error_code)> TGenFolderMetaDataStatusChangedDelegate;
     virtual CommonHandle32_t GenFolderChunkData(const char8_t* path, TGenFolderMetaDataStatusChangedDelegate Delegate) = 0;
     virtual CommonHandle32_t GenFolderChunkData(GenFolderChunkParams_t& params, TGenFolderMetaDataStatusChangedDelegate Delegate) = 0;
 

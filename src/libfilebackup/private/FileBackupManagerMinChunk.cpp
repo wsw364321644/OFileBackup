@@ -202,7 +202,8 @@ void FFileBackupManagerMinChunk::GenFolderChunkDataTask(this FFileBackupManagerM
             pFileTaskData->FileChunksData->Chunks.emplace(pChunkData);
             if (!chunkCache.fChunkAlreadyExist) {
                 if (!pFolderWorkData->bRequestExit) {
-                    pFileTaskData->NewFileChunkDelegate(&pFileTaskData->ChunkConverter, { (const char8_t*)ChunkData.HexName, uint32_t(sizeof(chunkCache.WeakHash) * 2 + sizeof(chunkCache.StrongHash) * 2) }, { (const char*)rawData, FileChunkSize });
+                    if (pFileTaskData->NewFileChunkDelegate)
+                        pFileTaskData->NewFileChunkDelegate(&pFileTaskData->ChunkConverter, { (const char8_t*)ChunkData.HexName, uint32_t(sizeof(chunkCache.WeakHash) * 2 + sizeof(chunkCache.StrongHash) * 2) }, { (const char*)rawData, FileChunkSize });
                 }
             }
 
