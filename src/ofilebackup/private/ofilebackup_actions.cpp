@@ -23,7 +23,7 @@ std::tuple< bool, std::shared_ptr<const FolderManifest_t>> gen_folder_manifest_b
     std::shared_ptr<const FolderManifest_t> out;
     IFileBackupManagerInterface* FileBackupManager = GetFileBackupManagerSingleton();
     CommonHandle32_t workHandle = FileBackupManager->GenFolderChunkData(workPathStr.data(),
-        [&](EGenFolderMetaDataStatus status, std::error_code& ec) {
+        [&](EGenFolderMetaDataStatus status, std::error_code ec) {
             switch (status) {
             case EGenFolderMetaDataStatus::Finished:
                 bExit = true;
